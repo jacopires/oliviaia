@@ -1,0 +1,9 @@
+
+{
+  "name": "SolarAI - Agente Dashboard",
+  "description": "Uma plataforma completa para gestão e monitoramento de agentes de IA especializados em triagem de leads de energia solar.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
