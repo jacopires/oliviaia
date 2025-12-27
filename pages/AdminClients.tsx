@@ -1,8 +1,215 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Header from '../components/Header';
+import { supabase } from '../services/supabase';
+import ClientModal from '../components/ClientModal';
+import ConfirmModal from '../components/ConfirmModal';
+import SuccessModal from '../components/SuccessModal';
+import { formatDistanceToNow, differenceInDays } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+// Types matching DB
+interface Plan {
+    id: string;
+    name: string;
+    price: number;
+    credits_limit?: number;
+}
+
+interface Client {
+    id: string;
+    company_name: string;
+    contact_name: string;
+    email: string;
+    phone: string;
+    status: 'active' | 'inactive' | 'pending' | 'blocked';
+    plan_id: string;
+    plan?: Plan; // Joined
+    image_url?: string;
+    created_at: string;
+    stored_password?: string;
+    credits_used?: number;
+    last_active_at?: string;
+}
 
 const AdminClients: React.FC = () => {
+    const [clients, setClients] = useState<Client[]>([]);
+    const [plans, setPlans] = useState<Plan[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+    const [revealedPasswords, setRevealedPasswords] = useState<{ [key: string]: boolean }>({});
+
+    // Delete Confirmation State
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
+
+    // Success Modal State
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+    const [createdPassword, setCreatedPassword] = useState<string>('');
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            // Fetch Plans
+            const { data: plansData } = await supabase.from('plans').select('*');
+            if (plansData) setPlans(plansData);
+
+            // Fetch Clients with Plan info
+            const { data: clientsData, error } = await supabase
+                .from('clients')
+                .select(`
+                *,
+                plan:plans (
+                    id, name, price, credits_limit
+                )
+            `)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            if (clientsData) setClients(clientsData as any);
+
+        } catch (error) {
+            console.error('Error fetching data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const handleAddClick = () => {
+        setSelectedClient(null);
+        setIsModalOpen(true);
+    };
+
+    const handleEditClick = (client: Client) => {
+        setSelectedClient(client);
+        setIsModalOpen(true);
+    };
+
+    const handleDeleteClick = (e: React.MouseEvent, client: Client) => {
+        e.stopPropagation(); // Prevent row click
+        setClientToDelete(client);
+        setIsDeleteModalOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!clientToDelete) return;
+
+        try {
+            const { error } = await supabase.functions.invoke('delete-client', {
+                body: {
+                    id: clientToDelete.id,
+                    email: clientToDelete.email
+                }
+            });
+
+            if (error) throw error;
+
+            await fetchData();
+            setIsDeleteModalOpen(false);
+            setClientToDelete(null);
+        } catch (error: any) {
+            console.error('Error deleting client:', error);
+            alert(`Erro ao excluir: ${error.message}`);
+            setIsDeleteModalOpen(false);
+        }
+    };
+
+    const togglePasswordVisibility = (e: React.MouseEvent, clientId: string) => {
+        e.stopPropagation(); // Prevent row click
+        setRevealedPasswords(prev => ({
+            ...prev,
+            [clientId]: !prev[clientId]
+        }));
+    };
+
+    const handleSave = async (data: any) => {
+        const payload = { ...data };
+        if (!payload.plan_id) delete payload.plan_id;
+
+        try {
+            if (selectedClient) {
+                // Update
+                const { error } = await supabase
+                    .from('clients')
+                    .update(payload)
+                    .eq('id', selectedClient.id);
+
+                if (error) throw error;
+            } else {
+                // Insert (Create User via Edge Function)
+                const { data: responseData, error: fnError } = await supabase.functions.invoke('create-client', {
+                    body: payload
+                });
+
+                if (fnError) throw fnError;
+                if (responseData.error) throw new Error(responseData.error);
+
+                if (responseData.password) {
+                    setCreatedPassword(responseData.password);
+                    setIsSuccessModalOpen(true);
+                } else if (responseData.message) {
+                    alert(`Cliente criado/atualizado com sucesso! ${responseData.message}`);
+                }
+            }
+            await fetchData();
+            setIsModalOpen(false);
+        } catch (error: any) {
+            console.error("Supabase Error:", error);
+            alert(`Erro ao salvar: ${error.message || error.details || JSON.stringify(error)}`);
+            throw error;
+        }
+    };
+
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'active': return 'bg-primary text-primary';
+            case 'inactive': return 'bg-red-500 text-red-500';
+            case 'pending': return 'bg-yellow-500 text-yellow-500';
+            case 'blocked': return 'bg-gray-500 text-gray-500';
+            default: return 'bg-white text-white';
+        }
+    };
+
+    const getStatusLabel = (status: string) => {
+        switch (status) {
+            case 'active': return 'Ativo';
+            case 'inactive': return 'Inativo';
+            case 'pending': return 'Pendente';
+            case 'blocked': return 'Bloqueado';
+            default: return status;
+        }
+    };
+
+    // --- UX Metrics Helpers ---
+
+    const getPlanBadgeColor = (planName?: string) => {
+        if (!planName) return 'bg-gray-100 text-gray-500 dark:bg-white/5 dark:text-white/40';
+        const name = planName.toLowerCase();
+        if (name.includes('enterprise')) return 'bg-purple-100 text-purple-600 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20';
+        if (name.includes('pro')) return 'bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20';
+        return 'bg-gray-100 text-gray-600 dark:bg-white/5 dark:text-white/60 border border-gray-200 dark:border-white/10';
+    };
+
+    const getUsageColor = (percentage: number) => {
+        if (percentage > 85) return 'bg-red-500 text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]'; // Upsell
+        if (percentage < 30) return 'bg-yellow-400 text-yellow-500'; // Churn Risk
+        return 'bg-emerald-500 text-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.2)]'; // Healthy 30-85%
+    };
+
+    const getRelativeTime = (dateString?: string) => {
+        if (!dateString) return { text: 'Nunca acessou', isRisk: true };
+        const date = new Date(dateString);
+        const text = formatDistanceToNow(date, { addSuffix: true, locale: ptBR });
+        const daysInactive = differenceInDays(new Date(), date);
+        return { text, isRisk: daysInactive > 7 };
+    };
+
     return (
         <div className="flex-1 overflow-y-auto bg-background-light dark:bg-background-dark scroll-smooth custom-scrollbar relative">
             {/* Background Pattern */}
@@ -12,9 +219,12 @@ const AdminClients: React.FC = () => {
 
                 <Header
                     title="Gerenciamento de Clientes"
-                    subtitle="Visualize, monitore e gerencie o acesso de empresas à plataforma de agentes solares."
+                    subtitle="Visualize métricas de saúde, uso e acesse dados críticos da carteira de clientes."
                     actions={
-                        <button className="flex items-center justify-center gap-2 h-12 px-6 bg-primary text-background-dark hover:bg-green-400 active:scale-95 transition-all rounded-lg font-bold shadow-[0_0_20px_rgba(19,236,91,0.2)] shrink-0">
+                        <button
+                            onClick={handleAddClick}
+                            className="flex items-center justify-center gap-2 h-12 px-6 bg-primary text-background-dark hover:bg-green-400 active:scale-95 transition-all rounded-lg font-bold shadow-[0_0_20px_rgba(19,236,91,0.2)] shrink-0"
+                        >
                             <span className="material-symbols-outlined">add</span>
                             <span>Adicionar Novo Cliente</span>
                         </button>
@@ -23,7 +233,6 @@ const AdminClients: React.FC = () => {
 
                 {/* Filters & Search Toolbar */}
                 <div className="flex flex-col lg:flex-row gap-4 bg-surface-dark/50 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
-                    {/* Search */}
                     <div className="flex-1 relative group">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="material-symbols-outlined text-black dark:text-white/40 group-focus-within:text-primary transition-colors">search</span>
@@ -34,218 +243,153 @@ const AdminClients: React.FC = () => {
                             type="text"
                         />
                     </div>
-                    {/* Filters */}
-                    <div className="flex gap-3 overflow-x-auto pb-2 lg:pb-0">
-                        <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-background-dark border border-gray-200 dark:border-white/10 hover:border-primary/50 text-slate-600 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-all whitespace-nowrap">
-                            <span className="text-sm font-medium">Status: Todos</span>
-                            <span className="material-symbols-outlined text-[20px]">keyboard_arrow_down</span>
-                        </button>
-                        <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-background-dark border border-gray-200 dark:border-white/10 hover:border-primary/50 text-slate-600 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-all whitespace-nowrap">
-                            <span className="text-sm font-medium">Plano: Todos</span>
-                            <span className="material-symbols-outlined text-[20px]">keyboard_arrow_down</span>
-                        </button>
-                        <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-background-dark border border-gray-200 dark:border-white/10 hover:border-primary/50 text-slate-600 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-all whitespace-nowrap">
-                            <span className="text-sm font-medium">Ordenação: Recentes</span>
-                            <span className="material-symbols-outlined text-[20px]">sort</span>
-                        </button>
-                    </div>
                 </div>
 
                 {/* Main Data Table */}
-                <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/5 rounded-xl overflow-hidden shadow-xl">
+                <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/5 rounded-xl overflow-hidden shadow-xl min-h-[400px]">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-50 dark:bg-white/5 border-b border-gray-200 dark:border-white/5 text-slate-500 dark:text-white/50 text-xs uppercase tracking-wider">
-                                    <th className="px-6 py-4 font-semibold">Cliente / Empresa</th>
-                                    <th className="px-6 py-4 font-semibold">Plano Atual</th>
-                                    <th className="px-6 py-4 font-semibold">Agentes Ativos</th>
-                                    <th className="px-6 py-4 font-semibold">Status</th>
-                                    <th className="px-6 py-4 font-semibold">Última Atividade</th>
-                                    <th className="px-6 py-4 font-semibold text-right">Ações</th>
+                                    <th className="px-6 py-5 font-semibold">Empresa & Plano</th>
+                                    <th className="px-6 py-5 font-semibold w-[30%]">Saúde do Uso</th>
+                                    <th className="px-6 py-5 font-semibold">Engajamento</th>
+                                    <th className="px-6 py-5 font-semibold text-right">Status</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-white/5">
-                                {/* Row 1 */}
-                                <tr className="group hover:bg-gray-50 dark:hover:bg-surface-hover transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
-                                                SE
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-900 dark:text-white font-medium text-sm group-hover:text-primary transition-colors">Solar Energy Ltda</p>
-                                                <p className="text-slate-500 dark:text-white/40 text-xs">contato@solarenergy.com.br</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-                                            Enterprise
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-slate-400 dark:text-white/40 text-[18px]">smart_toy</span>
-                                            <span className="text-slate-700 dark:text-white text-sm font-medium">12</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="size-2 rounded-full bg-primary animate-pulse"></div>
-                                            <span className="text-primary text-sm font-medium">Ativo</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-500 dark:text-white/60 text-sm">
-                                        Há 2 horas
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button className="text-slate-400 dark:text-white/40 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 p-1.5 rounded-lg transition-colors">
-                                            <span className="material-symbols-outlined">more_vert</span>
-                                        </button>
-                                    </td>
-                                </tr>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={4} className="p-8 text-center text-slate-500 dark:text-white/50">Carregando métricas da carteira...</td>
+                                    </tr>
+                                ) : clients.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="p-8 text-center text-slate-500 dark:text-white/50">Nenhum cliente ativo encontrado.</td>
+                                    </tr>
+                                ) : (
+                                    clients.map(client => {
+                                        // Calculate Usage Metrics
+                                        const creditsUsed = client.credits_used || 0;
+                                        const limit = client.plan?.credits_limit || 1000;
+                                        const usagePercentage = Math.min(100, Math.round((creditsUsed / limit) * 100));
+                                        const usageColorClass = getUsageColor(usagePercentage);
 
-                                {/* Row 2 */}
-                                <tr className="group hover:bg-gray-50 dark:hover:bg-surface-hover transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="size-10 rounded-full bg-gray-200 dark:bg-surface-dark border border-gray-300 dark:border-white/10 flex items-center justify-center overflow-hidden">
-                                                <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuA9TyS_Vqy_t4yEue0PcyIHuCfDI_P8PZtrmKLmRQS7-dP__4nSPz5uClzrlufPuw_rwItJdqlX3bBk-Sxl-5A2yhzsEJzc_H8Cq2vwuC-soStXmhxaOWqS2yIIzZ40zy4jIziuRs3CtDS8UgO6eeTbMVSCI-Ls3k0fQShfDDgcH6brr5kgTZJ94DlSNpP2ZQesS0ZXD8yzNlagpOis2c39zxoCjxmi78LqKVTCQ00_IV24Eskw7fQRrtHEerKIAk5ONYRE03IQmCV2')" }}></div>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-900 dark:text-white font-medium text-sm group-hover:text-primary transition-colors">GreenTech Solutions</p>
-                                                <p className="text-slate-500 dark:text-white/40 text-xs">financeiro@greentech.io</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-                                            Pro
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-slate-400 dark:text-white/40 text-[18px]">smart_toy</span>
-                                            <span className="text-slate-700 dark:text-white text-sm font-medium">3</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="size-2 rounded-full bg-yellow-500"></div>
-                                            <span className="text-yellow-500 text-sm font-medium">Pagamento Pendente</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-500 dark:text-white/60 text-sm">
-                                        Ontem, 14:30
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button className="text-slate-400 dark:text-white/40 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 p-1.5 rounded-lg transition-colors">
-                                            <span className="material-symbols-outlined">more_vert</span>
-                                        </button>
-                                    </td>
-                                </tr>
+                                        // Calculate Activity Metrics
+                                        const activityInfo = getRelativeTime(client.last_active_at);
 
-                                {/* Row 3 */}
-                                <tr className="group hover:bg-gray-50 dark:hover:bg-surface-hover transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="size-10 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white font-bold text-sm">
-                                                RS
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-900 dark:text-white font-medium text-sm group-hover:text-primary transition-colors">Renova Solar</p>
-                                                <p className="text-slate-500 dark:text-white/40 text-xs">admin@renovasolar.com</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-white/5 text-slate-600 dark:text-white/60 border border-gray-200 dark:border-white/10">
-                                            Starter
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-slate-400 dark:text-white/40 text-[18px]">smart_toy</span>
-                                            <span className="text-slate-700 dark:text-white text-sm font-medium">1</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="size-2 rounded-full bg-primary"></div>
-                                            <span className="text-primary text-sm font-medium">Ativo</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-500 dark:text-white/60 text-sm">
-                                        23 Out, 2023
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button className="text-slate-400 dark:text-white/40 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 p-1.5 rounded-lg transition-colors">
-                                            <span className="material-symbols-outlined">more_vert</span>
-                                        </button>
-                                    </td>
-                                </tr>
+                                        return (
+                                            <tr
+                                                key={client.id}
+                                                onClick={() => handleEditClick(client)}
+                                                className="group border-b border-gray-100 dark:border-white/5 hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors duration-200 cursor-pointer"
+                                            >
 
-                                {/* Row 4 */}
-                                <tr className="group hover:bg-gray-50 dark:hover:bg-surface-hover transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="size-10 rounded-full bg-gray-200 dark:bg-surface-dark border border-gray-300 dark:border-white/10 flex items-center justify-center overflow-hidden">
-                                                <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuBF64PPGAM4LcQeZzGwbwqATejPYm8EHGAs8G5KdYpxa6rnz5keHYU2R6LtI-YjORUT2JnTBP4vMqpIYsXllYF2KyixBHaOzfJ9Mr4yIZbVKr272LdzpNJyB4pi5jAQaP6iUNeOXcWKvr-ioYYDDhW0Behzupfrbg99oFlb0kgqfTDn7lXg3lD4A2xBx3EkaKUmoseONdX36oOIwpAffnJxu1B4HXgPYkUpr38osSSssLQnbmpf3PzHczBQdyhKN6Q8vjmSW9co-rS5')" }}></div>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-900 dark:text-white font-medium text-sm group-hover:text-primary transition-colors">EcoPower Brasil</p>
-                                                <p className="text-slate-500 dark:text-white/40 text-xs">suporte@ecopower.com.br</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-                                            Pro
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-slate-400 dark:text-white/40 text-[18px]">smart_toy</span>
-                                            <span className="text-slate-700 dark:text-white text-sm font-medium">5</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="size-2 rounded-full bg-red-500"></div>
-                                            <span className="text-red-500 text-sm font-medium">Cancelado</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-500 dark:text-white/60 text-sm">
-                                        01 Set, 2023
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button className="text-slate-400 dark:text-white/40 hover:text-slate-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 p-1.5 rounded-lg transition-colors">
-                                            <span className="material-symbols-outlined">more_vert</span>
-                                        </button>
-                                    </td>
-                                </tr>
+                                                {/* Col 1: Identity & Plan */}
+                                                <td className="px-6 py-5">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="size-12 rounded-full bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center text-white font-bold text-sm uppercase shadow-inner shrink-0">
+                                                            {client.company_name.substring(0, 2)}
+                                                        </div>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-slate-900 dark:text-white font-bold text-[15px]">
+                                                                    {client.company_name}
+                                                                </p>
+                                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wide ${getPlanBadgeColor(client.plan?.name)}`}>
+                                                                    {client.plan?.name || 'Sem Plano'}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xs text-slate-400 dark:text-white/40 font-medium">
+                                                                {client.email}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </td>
 
+                                                {/* Col 2: Usage Health */}
+                                                <td className="px-6 py-5">
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="flex justify-between items-end">
+                                                            <span className="text-[10px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-wider">Tokens</span>
+                                                            <span className={`text-xs font-bold ${usageColorClass.split(' ')[1]}`}>
+                                                                {usagePercentage}%
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-gray-100 dark:bg-white/5 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-500 ${usageColorClass.split(' ')[0]} ${usagePercentage > 85 ? 'animate-pulse' : ''}`}
+                                                                style={{ width: `${usagePercentage}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-400 dark:text-white/30 truncate">
+                                                            {creditsUsed.toLocaleString()} / <span className="text-white/50">{limit.toLocaleString()}</span>
+                                                        </p>
+                                                    </div>
+                                                </td>
+
+                                                {/* Col 3: Engagement (Risk) */}
+                                                <td className="px-6 py-5">
+                                                    <div className="flex items-center gap-2">
+                                                        {activityInfo.isRisk && (
+                                                            <span className="material-symbols-outlined text-red-500 text-[18px]">warning</span>
+                                                        )}
+                                                        <p className={`text-sm font-medium ${activityInfo.isRisk ? 'text-red-500' : 'text-slate-500 dark:text-white/70'}`}>
+                                                            {activityInfo.text}
+                                                        </p>
+                                                    </div>
+                                                </td>
+
+                                                {/* Col 4: Status (Action implicit via row click) */}
+                                                <td className="px-6 py-5 text-right">
+                                                    <div className="flex flex-col items-end gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`size-2 rounded-full ${getStatusColor(client.status).split(' ')[0]} ${client.status === 'active' ? 'shadow-[0_0_8px_rgba(19,236,91,0.4)]' : ''}`}></div>
+                                                            <span className={`text-xs font-bold uppercase tracking-wide ${getStatusColor(client.status).split(' ')[1]}`}>{getStatusLabel(client.status)}</span>
+                                                        </div>
+
+                                                        {/* Small Helper Actions (hidden by default, visible on hover) - Optional, but keeping 'delete' accessible can be useful. 
+                                                            Actually user said "Eliminate unnecessary columns", "Remove Actions column". 
+                                                            So I will keep it purely implicit or maybe just a very subtle delete inside the modal. 
+                                                            For now, adhere to explicit instruction: Remove Actions Column.
+                                                        */}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
                             </tbody>
                         </table>
                     </div>
-
-                    {/* Pagination */}
-                    <div className="bg-gray-50 dark:bg-surface-dark border-t border-gray-200 dark:border-white/5 px-6 py-4 flex items-center justify-between">
-                        <div className="text-xs text-slate-500 dark:text-white/40">
-                            Mostrando <span className="text-slate-900 dark:text-white font-medium">1</span> a <span class="text-slate-900 dark:text-white font-medium">4</span> de <span class="text-slate-900 dark:text-white font-medium">28</span> clientes
-                        </div>
-                        <div className="flex gap-2">
-                            <button className="px-3 py-1.5 rounded border border-gray-200 dark:border-white/10 text-slate-500 dark:text-white/60 text-xs hover:bg-gray-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-50" disabled>
-                                Anterior
-                            </button>
-                            <button className="px-3 py-1.5 rounded border border-gray-200 dark:border-white/10 text-slate-500 dark:text-white/60 text-xs hover:bg-gray-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                Próximo
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
+
+            <ClientModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSave={handleSave}
+                initialData={selectedClient}
+                plans={plans}
+            />
+
+            <ConfirmModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={confirmDelete}
+                title="Excluir Cliente"
+                message={`Tem certeza que deseja excluir o cliente "${clientToDelete?.company_name}"? Essa ação removerá permanentemente o acesso e os dados do banco de dados.`}
+                confirmText="Excluir Cliente"
+                cancelText="Cancelar"
+                isDestructive={true}
+            />
+
+            <SuccessModal
+                isOpen={isSuccessModalOpen}
+                onClose={() => setIsSuccessModalOpen(false)}
+                title="Cliente Criado com Sucesso"
+                message="O acesso do cliente foi configurado corretamente. Envie as credenciais abaixo para que ele possa acessar a plataforma."
+                password={createdPassword}
+            />
         </div>
     );
 };

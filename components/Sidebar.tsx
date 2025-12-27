@@ -10,13 +10,11 @@ const Sidebar: React.FC = () => {
   const navRef = useRef<HTMLDivElement>(null);
 
   const menuItems = [
-    { label: 'Visão Geral', path: '/', icon: 'dashboard', section: 'Principal' },
-    { label: 'Meus Agentes', path: '/agents/1', icon: 'smart_toy', section: 'Principal' },
-    { label: 'Monitoramento', path: '/monitor', icon: 'chat', section: 'Principal' },
-    { label: 'Clientes', path: '/admin/clients', icon: 'groups', section: 'Principal' },
-    { label: 'Integrações', path: '/integrations', icon: 'extension', section: 'Principal' },
-    { label: 'Configurações', path: '/settings', icon: 'settings', section: 'Sistema' },
-    { label: 'Ajuda e Suporte', path: '/help', icon: 'help', section: 'Sistema' },
+    { label: 'Dashboard', path: '/', icon: 'bar_chart', section: 'Principal' },
+    { label: 'Meus Agentes', path: '/agents', icon: 'smart_toy', section: 'Principal' },
+    { label: 'Gestão de Clientes', path: '/admin-clients', icon: 'domain', section: 'Principal' },
+    { label: 'Integrações', path: '/integrations', icon: 'link', section: 'Principal' },
+    { label: 'Configurações', path: '/settings', icon: 'settings', section: 'Principal' },
   ];
 
   const isActive = (path: string) => {

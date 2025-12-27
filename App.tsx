@@ -12,6 +12,7 @@ import ModelConfig from './pages/ModelConfig';
 import Help from './pages/Help';
 import Login from './pages/Login';
 import AdminClients from './pages/AdminClients';
+import Settings from './pages/Settings';
 import { AuthProvider, useAuth } from './components/AuthContext';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -72,11 +73,13 @@ const App: React.FC = () => {
                     <Route path="/monitor" element={<Monitor />} />
                     <Route path="/integrations" element={<Integrations />} />
                     <Route path="/help" element={<Help />} />
-                    <Route path="/admin/clients" element={
+                    <Route path="/admin-clients" element={
                       <AdminRoute>
                         <AdminClients />
                       </AdminRoute>
                     } />
+                    <Route path="/agents" element={<Dashboard />} />
+                    <Route path="/settings" element={<Settings />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </main>
