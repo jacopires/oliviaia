@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { supabase } from '../services/supabase';
@@ -7,9 +7,9 @@ import { supabase } from '../services/supabase';
 const Login: React.FC = () => {
   const [view, setView] = useState<'selection' | 'login'>('selection');
   const [profileType, setProfileType] = useState<'client' | 'admin' | null>(null);
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,13 +18,12 @@ const Login: React.FC = () => {
   const location = useLocation();
 
   // Redirect if already logged in
-  React.useEffect(() => {
+  useEffect(() => {
     if (session) {
       if ((session.user.user_metadata as any)?.role === 'admin') {
-        navigate('/admin/clients', { replace: true });
+        navigate('/', { replace: true });
         return;
       }
-
       const from = (location.state as any)?.from?.pathname || '/';
       navigate(from, { replace: true });
     }
@@ -47,216 +46,222 @@ const Login: React.FC = () => {
         password,
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (data.user) {
         const userRole = data.user.user_metadata?.role;
-
-        // If user has no role, we might want to default to 'client' or restrict access
-        // strict check:
         if (profileType === 'admin' && userRole !== 'admin') {
           await supabase.auth.signOut();
           throw new Error('Acesso negado. Esta conta não possui perfil de gestão.');
         }
-
         if (profileType === 'client' && userRole === 'admin') {
-          // Admins can probably login as clients or we force them to use admin login?
-          // User request implies strict separation: "login para cliente E para gestão"
-          // Let's enforce strictness for clarity
           await supabase.auth.signOut();
           throw new Error('Acesso negado. Utilize a opção "Login Gestão".');
         }
       }
-
-      // Success handled by useEffect redirect
     } catch (err: any) {
-      setError(err.message || 'Falha ao fazer login. Verifique suas credenciais.');
+      let errorMessage = err.message || 'Falha ao fazer login. Verifique suas credenciais.';
+
+      // Translate common Supabase errors
+      if (errorMessage.includes('Invalid login credentials')) {
+        errorMessage = 'Credenciais inválidas. Verifique seu e-mail e senha.';
+      } else if (errorMessage.includes('Email not confirmed')) {
+        errorMessage = 'E-mail não confirmado. Verifique sua caixa de entrada.';
+      }
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-row bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-white overflow-hidden">
-      {/* LEFT COLUMN */}
-      <div className="flex flex-1 flex-col justify-center px-4 py-12 sm:px-6 lg:flex-none lg:px-20 xl:px-24 bg-background-light dark:bg-background-dark z-10 w-full lg:w-[45%] xl:w-[40%] relative">
+    <div className="flex min-h-screen w-full bg-[#0a0f0d] font-display text-white overflow-hidden relative">
+      {/* Dynamic Background Element */}
+      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
 
-        {/* Logo */}
-        <div className="absolute top-8 left-8 lg:left-12 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-background-dark">
-            <span className="material-symbols-outlined text-xl font-bold">solar_power</span>
+      {/* LEFT COLUMN: FORM */}
+      <div className="flex flex-col justify-center w-full lg:w-[45%] xl:w-[40%] px-8 md:px-16 lg:px-24 z-10 bg-white/5 backdrop-blur-xl border-r border-white/5 shadow-2xl">
+
+        {/* Header/Logo */}
+        <div className="absolute top-12 left-8 md:left-16 lg:left-24 flex items-center gap-3 group cursor-pointer">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 border border-white/10 shadow-sm transition-transform group-hover:scale-110">
+            <span className="material-symbols-outlined text-primary">solar_power</span>
           </div>
-          <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Solar AI</span>
+          <div className="flex flex-col leading-none">
+            <span className="text-xl font-bold tracking-tight text-white/90">SolarAI</span>
+            <span className="text-[9px] text-primary/60 font-medium tracking-[0.3em] uppercase">Smarter Solar</span>
+          </div>
         </div>
 
-        <div className="mx-auto w-full max-w-sm lg:w-96">
+        <div className="w-full max-w-md mx-auto">
 
           {view === 'selection' ? (
-            <>
-              <div className="flex flex-col mb-10">
-                <h1 className="text-slate-900 dark:text-white tracking-tight text-[32px] font-bold leading-tight pb-3">Escolha seu acesso</h1>
-                <p className="text-slate-600 dark:text-text-muted text-base font-normal leading-normal">
-                  Selecione o tipo de conta para entrar na plataforma.
-                </p>
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="mb-14">
+                <h1 className="text-3xl font-bold text-white tracking-tight mb-4">Bem-vindo.</h1>
+                <p className="text-gray-400 text-base font-light leading-relaxed">Selecione o portal de acesso para continuar sua jornada na plataforma SolarAI.</p>
               </div>
 
-              <div className="flex flex-col gap-4">
+              <div className="space-y-4">
                 <button
                   onClick={() => handleProfileSelect('client')}
-                  className="group w-full flex items-center p-5 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-2xl hover:border-primary dark:hover:border-primary hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 text-left relative overflow-hidden"
+                  className="group relative w-full p-6 bg-white/[0.02] border border-white/[0.05] rounded-xl flex items-center gap-5 hover:border-primary/30 hover:bg-white/[0.04] transition-all duration-300"
                 >
-                  <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors duration-300"></div>
-                  <div className="flex-shrink-0 mr-5 relative z-10">
-                    <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-background-dark flex items-center justify-center group-hover:bg-primary group-hover:text-background-dark transition-all duration-300 border border-gray-200 dark:border-border-dark group-hover:border-primary">
-                      <span className="material-symbols-outlined text-slate-600 dark:text-text-muted group-hover:text-background-dark text-[24px]">person</span>
-                    </div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10 group-hover:bg-primary/10 group-hover:text-primary transition-all duration-300">
+                    <span className="material-symbols-outlined text-2xl font-light">person</span>
                   </div>
-                  <div className="flex-grow relative z-10">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">Login Cliente</h3>
-                    <p className="text-sm text-slate-500 dark:text-text-muted mt-1 font-medium">Acesso a dashboards e agentes</p>
+                  <div className="flex-1 text-left">
+                    <h3 className="text-lg font-semibold text-white/90 group-hover:text-primary transition-colors">Portal do Cliente</h3>
+                    <p className="text-xs text-gray-500 font-light">Gerencie seus agentes e leads</p>
                   </div>
-                  <div className="flex-shrink-0 ml-4 relative z-10">
-                    <span className="material-symbols-outlined text-gray-300 dark:text-gray-600 group-hover:text-primary group-hover:translate-x-1 transition-all text-2xl">arrow_forward</span>
-                  </div>
+                  <span className="material-symbols-outlined text-gray-600 transition-all text-sm group-hover:text-primary">arrow_forward</span>
                 </button>
 
                 <button
                   onClick={() => handleProfileSelect('admin')}
-                  className="group w-full flex items-center p-5 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-2xl hover:border-primary dark:hover:border-primary hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 text-left relative overflow-hidden"
+                  className="group relative w-full p-6 bg-white/[0.02] border border-white/[0.05] rounded-xl flex items-center gap-5 hover:border-primary/30 hover:bg-white/[0.04] transition-all duration-300"
                 >
-                  <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors duration-300"></div>
-                  <div className="flex-shrink-0 mr-5 relative z-10">
-                    <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-background-dark flex items-center justify-center group-hover:bg-primary group-hover:text-background-dark transition-all duration-300 border border-gray-200 dark:border-border-dark group-hover:border-primary">
-                      <span className="material-symbols-outlined text-slate-600 dark:text-text-muted group-hover:text-background-dark text-[24px]">admin_panel_settings</span>
-                    </div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10 group-hover:bg-primary/10 group-hover:text-primary transition-all duration-300">
+                    <span className="material-symbols-outlined text-2xl font-light">admin_panel_settings</span>
                   </div>
-                  <div className="flex-grow relative z-10">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">Login Gestão</h3>
-                    <p className="text-sm text-slate-500 dark:text-text-muted mt-1 font-medium">Acesso administrativo (Admin)</p>
+                  <div className="flex-1 text-left">
+                    <h3 className="text-lg font-semibold text-white/90 group-hover:text-primary transition-colors">Portal de Gestão</h3>
+                    <p className="text-xs text-gray-500 font-light">Administração completa da plataforma</p>
                   </div>
-                  <div className="flex-shrink-0 ml-4 relative z-10">
-                    <span className="material-symbols-outlined text-gray-300 dark:text-gray-600 group-hover:text-primary group-hover:translate-x-1 transition-all text-2xl">arrow_forward</span>
-                  </div>
+                  <span className="material-symbols-outlined text-gray-600 transition-all text-sm group-hover:text-primary">arrow_forward</span>
                 </button>
               </div>
 
-              <div className="relative mt-8 mb-6">
-                <div aria-hidden="true" className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200 dark:border-border-dark"></div>
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-background-light dark:bg-background-dark px-2 text-xs uppercase tracking-wider font-semibold text-gray-400 dark:text-gray-600">Suporte</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 text-center">
-                <Link to="/help" className="text-sm font-medium text-slate-600 dark:text-text-muted hover:text-primary transition-colors flex items-center justify-center gap-2">
-                  <span className="material-symbols-outlined text-lg">help</span>
-                  Central de Ajuda
+              <div className="mt-14 pt-8 border-t border-white/[0.03] flex justify-center">
+                <Link to="/help" className="text-xs text-gray-500 hover:text-primary flex items-center gap-2 transition-colors font-light tracking-wide">
+                  <span className="material-symbols-outlined text-base">help</span>
+                  SUPORTE AO CLIENTE
                 </Link>
               </div>
-            </>
+            </div>
           ) : (
-            // LOGIN FORM VIEW
-            <div className="flex flex-col animate-in fade-in slide-in-from-right-8 duration-300">
+            <div className="animate-in fade-in slide-in-from-right-8 duration-500">
               <button
                 onClick={() => setView('selection')}
-                className="self-start mb-6 flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-text-muted hover:text-primary transition-colors"
+                className="mb-10 flex items-center gap-2 text-[10px] font-semibold text-gray-500 hover:text-white transition-colors uppercase tracking-[0.2em]"
               >
-                <span className="material-symbols-outlined text-lg">arrow_back</span>
-                Voltar para seleção
+                <span className="material-symbols-outlined text-base">arrow_back</span>
+                VOLTAR
               </button>
 
-              <div className="mb-8">
-                <h1 className="text-slate-900 dark:text-white tracking-tight text-[32px] font-bold leading-tight pb-2">
-                  {profileType === 'client' ? 'Login Cliente' : 'Login Gestão'}
-                </h1>
-                <p className="text-slate-600 dark:text-text-muted text-base font-normal leading-normal">
-                  Informe suas credenciais para continuar.
-                </p>
+              <div className="mb-12">
+                <div className="inline-block px-3 py-1 rounded-full bg-primary/5 border border-primary/20 text-primary text-[9px] font-bold uppercase tracking-[0.2em] mb-4">
+                  {profileType === 'admin' ? 'ACESSO ADMINISTRATIVO' : 'ACESSO DO CLIENTE'}
+                </div>
+                <h1 className="text-3xl font-bold text-white tracking-tight mb-2">Identifique-se.</h1>
+                <p className="text-gray-400 font-light">Insira suas credenciais cadastradas no sistema.</p>
               </div>
 
               {error && (
-                <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex gap-3 items-start">
-                  <span className="material-symbols-outlined text-red-500 mt-0.5">error</span>
-                  <p className="text-sm text-red-200">{error}</p>
+                <div className="mb-8 p-4 rounded-xl bg-red-500/5 border border-red-500/20 flex gap-3 animate-shake">
+                  <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                  <p className="text-sm text-red-200/70 font-light">{error}</p>
                 </div>
               )}
 
               <form className="space-y-6" onSubmit={handleLogin}>
-                <div>
-                  <label className="block text-sm font-medium leading-6 text-slate-900 dark:text-white pb-2">E-mail</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-text-secondary text-[20px]">mail</span>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.2em] ml-1">E-mail Corporativo</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-600 group-focus-within:text-primary transition-colors text-xl font-light">mail</span>
                     <input
                       type="email"
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full rounded-lg border-0 py-3.5 pl-10 bg-white dark:bg-surface-dark text-white ring-1 ring-inset ring-gray-300 dark:ring-border-dark focus:ring-2 focus:ring-primary outline-none transition-all placeholder:text-text-muted/50"
-                      placeholder="exemplo@empresa.com.br"
+                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl py-4 pl-12 pr-4 text-white/90 font-light focus:ring-1 focus:ring-primary/40 focus:bg-white/[0.06] outline-none transition-all placeholder:text-gray-700"
+                      placeholder="seu@email.com"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium leading-6 text-slate-900 dark:text-white pb-2">Senha</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-text-secondary text-[20px]">lock</span>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.2em] ml-1">Senha de Acesso</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-600 group-focus-within:text-primary transition-colors text-xl font-light">lock</span>
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-lg border-0 py-3.5 pl-10 bg-white dark:bg-surface-dark text-white ring-1 ring-inset ring-gray-300 dark:ring-border-dark focus:ring-2 focus:ring-primary outline-none transition-all placeholder:text-text-muted/50"
+                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl py-4 pl-12 pr-12 text-white/90 font-light focus:ring-1 focus:ring-primary/40 focus:bg-white/[0.06] outline-none transition-all placeholder:text-gray-700"
                       placeholder="••••••••"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-xl font-light">{showPassword ? 'visibility_off' : 'visibility'}</span>
+                    </button>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex w-full justify-center rounded-lg bg-primary px-3 py-4 text-base font-bold text-[#102216] shadow-sm hover:bg-[#0fd650] hover:shadow-lg hover:shadow-primary/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
-                >
-                  {loading && <span className="size-4 border-2 border-[#102216] border-t-transparent rounded-full animate-spin"></span>}
-                  {loading ? 'Entrando...' : 'Entrar na Plataforma'}
-                </button>
+                <div className="pt-4">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-4 bg-primary/95 text-[#0a0f0d] font-bold text-base rounded-xl shadow-lg shadow-primary/10 hover:shadow-primary/20 hover:bg-primary active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                  >
+                    {loading ? (
+                      <span className="size-5 border-2 border-[#0a0f0d]/30 border-t-[#0a0f0d] rounded-full animate-spin"></span>
+                    ) : (
+                      <>
+                        <span>ACESSAR PLATAFORMA</span>
+                        <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           )}
-
         </div>
       </div>
 
-      {/* RIGHT COLUMN */}
-      <div className="relative hidden w-0 flex-1 lg:block">
+      {/* RIGHT COLUMN: VISUAL */}
+      <div className="hidden lg:block flex-1 relative bg-[#0a0d0b] overflow-hidden">
         <img
-          alt="Modern architecture with solar panels"
-          className="absolute inset-0 h-full w-full object-cover opacity-80"
-          src="https://lh3.googleusercontent.com/aida-public/AB6AXuDr5HUQgJdYoR3qEvbYnoZEjGPTrkSWMUwoJTyLjnaLRdOfn35ql9gGU_KI3twISzLmqxyaRp9_mIkLSvudMSsO7Xbvgb6A2EyQ6ykjAHgH6tmzBh-mbQPXJ1tCGeWQjNXxh_HUmpSF5aBhKu2qyfoFAebcxdGP5HiyTBk4btUJ5vfKvI1bOdaTfGnIKzppYQZ3fa3PbXce-cpEo3d-jRAOGAVoXoadlNryiVNTWWcpCyJ95wSAEBtUPYlAdDkg4w9rMX7poTAcI-k3"
+          src="https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?q=80&w=2072&auto=format&fit=crop"
+          alt="Solar Infrastructure"
+          className="absolute inset-0 h-full w-full object-cover opacity-[0.25] grayscale"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-background-dark via-background-dark/80 to-transparent mix-blend-multiply"></div>
-        <div className="absolute inset-0 bg-gradient-to-r from-background-dark/90 to-transparent"></div>
+        <div className="absolute inset-0 bg-gradient-to-tr from-[#0a0f0d] via-transparent to-transparent"></div>
 
-        <div className="absolute inset-0 flex flex-col justify-end p-20 z-10">
-          <blockquote className="mb-6 border-l-4 border-primary pl-6">
-            <p className="text-xl font-medium italic text-white/90">
-              "A Solar AI transformou a forma como triamos nossos leads. Nossa conversão aumentou 40% no primeiro mês."
+        {/* Minimal Floating Elements */}
+        <div className="absolute inset-0 flex flex-col items-start justify-end p-24">
+          <div className="max-w-xl space-y-10 text-left">
+            <div className="h-0.5 w-12 bg-primary/60"></div>
+            <h2 className="text-5xl font-bold text-white tracking-tight leading-[1.1]">
+              Smart Energy <br />
+              <span className="text-primary/90">Intelligence.</span>
+            </h2>
+            <p className="text-lg text-gray-500 font-light leading-relaxed max-w-sm">
+              Gestão simplificada e automatizada para a próxima geração da energia solar.
             </p>
-            <footer className="mt-4 text-sm font-semibold text-primary">Carlos Mendes, CEO da SunPower Brasil</footer>
-          </blockquote>
-          <div className="flex gap-4">
-            <div className="h-1.5 w-12 rounded-full bg-primary"></div>
-            <div className="h-1.5 w-12 rounded-full bg-white/20"></div>
-            <div className="h-1.5 w-12 rounded-full bg-white/20"></div>
+
+            <div className="flex gap-12 pt-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-2xl font-semibold text-white/80 tracking-tight">+40%</span>
+                <span className="text-[10px] text-gray-600 uppercase font-bold tracking-widest">Growth</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-2xl font-semibold text-white/80 tracking-tight">Real-time</span>
+                <span className="text-[10px] text-gray-600 uppercase font-bold tracking-widest">Monitoring</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default Login;

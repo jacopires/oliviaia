@@ -1,7 +1,9 @@
 
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { supabase } from '../services/supabase';
+import { useToast } from '../components/ToastProvider';
 import ClientModal from '../components/ClientModal';
 import ConfirmModal from '../components/ConfirmModal';
 import SuccessModal from '../components/SuccessModal';
@@ -33,9 +35,13 @@ interface Client {
 }
 
 const AdminClients: React.FC = () => {
+    const navigate = useNavigate();
     const [clients, setClients] = useState<Client[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const { showToast } = useToast();
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -111,12 +117,13 @@ const AdminClients: React.FC = () => {
             if (error) throw error;
 
             await fetchData();
+            showToast('Cliente excluído com sucesso.', 'success');
+        } catch (error: any) {
+            console.error('Erro ao excluir:', error);
+            showToast(`Erro ao excluir: ${error.message}`, 'error');
+        } finally {
             setIsDeleteModalOpen(false);
             setClientToDelete(null);
-        } catch (error: any) {
-            console.error('Error deleting client:', error);
-            alert(`Erro ao excluir: ${error.message}`);
-            setIsDeleteModalOpen(false);
         }
     };
 
@@ -129,6 +136,7 @@ const AdminClients: React.FC = () => {
     };
 
     const handleSave = async (data: any) => {
+        setLoading(true);
         const payload = { ...data };
         if (!payload.plan_id) delete payload.plan_id;
 
@@ -141,6 +149,7 @@ const AdminClients: React.FC = () => {
                     .eq('id', selectedClient.id);
 
                 if (error) throw error;
+                showToast(`Cliente atualizado com sucesso!`, 'success');
             } else {
                 // Insert (Create User via Edge Function)
                 const { data: responseData, error: fnError } = await supabase.functions.invoke('create-client', {
@@ -154,15 +163,16 @@ const AdminClients: React.FC = () => {
                     setCreatedPassword(responseData.password);
                     setIsSuccessModalOpen(true);
                 } else if (responseData.message) {
-                    alert(`Cliente criado/atualizado com sucesso! ${responseData.message}`);
+                    showToast(`Cliente criado com sucesso! ${responseData.message}`, 'success');
                 }
             }
             await fetchData();
             setIsModalOpen(false);
         } catch (error: any) {
             console.error("Supabase Error:", error);
-            alert(`Erro ao salvar: ${error.message || error.details || JSON.stringify(error)}`);
-            throw error;
+            showToast(`Erro ao salvar: ${error.message || error.details || JSON.stringify(error)}`, 'error');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -280,7 +290,7 @@ const AdminClients: React.FC = () => {
                                         return (
                                             <tr
                                                 key={client.id}
-                                                onClick={() => handleEditClick(client)}
+                                                onClick={() => navigate(`/admin-clients/${client.id}`)}
                                                 className="group border-b border-gray-100 dark:border-white/5 hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors duration-200 cursor-pointer"
                                             >
 

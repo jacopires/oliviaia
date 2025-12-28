@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { sendMessageToGemini } from '../services/geminiService';
+import { supabase } from '../services/supabase';
+import { useToast } from '../components/ToastProvider';
 
 interface Message {
   id: string;
@@ -17,6 +19,7 @@ interface ChatSession {
   score: string;
   color: string;
   messages: Message[];
+  profile_pic?: string;
 }
 
 const Monitor: React.FC = () => {
@@ -27,69 +30,228 @@ const Monitor: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  const [chats, setChats] = useState<ChatSession[]>([
-    {
-      id: '1', name: 'Marcos Oliveira', avatar: 'MO', status: 'Qualificado', score: 'Potencial Alto', color: 'bg-green-500/20 text-green-500',
-      messages: [
-        { id: 'm1', sender: 'ai', text: 'Olá Marcos! Sou o assistente virtual da SolarEnergy. Qual o valor médio da sua conta?', time: '14:30' },
-        { id: 'm2', sender: 'user', text: 'Vem uns R$ 600,00 por mês.', time: '14:31' },
-        { id: 'm3', sender: 'ai', text: 'Entendi. E para qual tipo de imóvel seria a instalação? Residencial ou comercial?', time: '14:32' },
-        { id: 'm4', sender: 'user', text: 'É residencial, em uma casa em Campinas.', time: '14:35' },
-        { id: 'm5', sender: 'ai', text: 'Ótimo! Campinas tem uma excelente incidência solar. Você sabe me dizer se o seu telhado é de fibrocimento ou cerâmico?', time: '14:36' }
-      ]
-    },
-    {
-      id: '2', name: 'Julia Santos', avatar: 'JS', status: 'Desqualificado', score: 'Baixo', color: 'bg-red-500/20 text-red-500',
-      messages: [
-        { id: 'm1', sender: 'ai', text: 'Olá Julia, como posso ajudar hoje?', time: '13:10' },
-        { id: 'm2', sender: 'user', text: 'Não tenho interesse agora, só estava curiosa.', time: '13:15' }
-      ]
-    },
-    {
-      id: '3', name: 'Roberto Costa', avatar: 'RC', status: 'Em Análise', score: 'Médio', color: 'bg-amber-500/20 text-amber-500',
-      messages: [
-        { id: 'm1', sender: 'ai', text: 'Oi Roberto! Já conhece nossos planos de financiamento?', time: '12:40' },
-        { id: 'm2', sender: 'user', text: 'Estou agendando uma visita...', time: '12:45' }
-      ]
-    }
-  ]);
+  /* State Management */
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
-  const activeChat = chats.find(c => c.id === activeChatId) || chats[0];
+  // Computed Active Chat
+  const activeChat = chats.find(c => c.id === activeChatId);
+
+  // 1. Fetch Chats (Leads)
+  useEffect(() => {
+    fetchChats();
+    repairWebhook(); // Auto-repair on load
+
+    // Realtime subscription for new leads
+    const subscription = supabase
+      .channel('public:leads')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        fetchChats();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(subscription); }
+  }, []);
+
+  const repairWebhook = async () => {
+    try {
+      console.log("Repairing webhook...");
+      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
+        body: { action: 'repair-webhook' }
+      });
+      if (data?.log) console.log("Repair Log:", data.log);
+    } catch (e) {
+      console.error("Repair failed", e);
+    }
+  };
+
+  const fetchChats = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log("Current User:", user?.id);
+
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error("Fetch error:", error);
+      showToast('Erro ao buscar chats: ' + error.message, 'error');
+      return;
+    }
+
+    if (data) {
+      console.log("Fetched chats:", data.length);
+      // DEBUG TOAST
+      // showToast(`Debug: ${data.length} chats encontrados. User: ${user?.id?.slice(0,5)}...`, 'info');
+
+      const mappedChats = data.map(d => ({
+        id: d.session_id,
+        name: d.name || d.session_id,
+        avatar: (d.name?.[0] || d.session_id?.[0] || '?').toUpperCase(),
+        status: d.status_cliente || 'Novo',
+        score: 'Neutro',
+        color: typeToColor(d.status_cliente),
+        messages: [],
+        profile_pic: d.profile_pic
+      }));
+      setChats(mappedChats);
+
+      // Auto-select first chat if none selected or invalid
+      if (mappedChats.length > 0) {
+        if (!activeChatId || activeChatId === '1' || !mappedChats.find(c => c.id === activeChatId)) {
+          setActiveChatId(mappedChats[0].id);
+        }
+      }
+    }
+    setLoading(false);
+  }
+
+  const typeToColor = (status: string) => {
+    if (status === 'CONCLUIDO') return 'bg-emerald-500/10 text-emerald-500';
+    if (status === 'NEGOCIACAO') return 'bg-amber-500/10 text-amber-500';
+    return 'bg-white/10 text-white';
+  };
+
+  // 2. Fetch Messages for Active Chat
+  useEffect(() => {
+    if (!activeChatId) return;
+    fetchMessages(activeChatId);
+
+    const subscription = supabase
+      .channel(`chat:${activeChatId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `session_id=eq.${activeChatId}`
+      }, (payload) => {
+        const newMsg = payload.new;
+        setMessages(prev => [...prev, {
+          id: newMsg.id,
+          sender: newMsg.sender,
+          text: newMsg.content,
+          time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(subscription); }
+  }, [activeChatId]);
+
+  const fetchMessages = async (sessionId: string) => {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+
+    if (data) {
+      setMessages(data.map(m => ({
+        id: m.id,
+        sender: m.sender as any,
+        text: m.content,
+        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      })));
+    } else {
+      setMessages([]);
+    }
+  }
 
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [activeChat.messages, isTyping]);
+  }, [messages, isTyping]);
 
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
 
+    const messageText = inputText;
+    // Optimistic UI Update
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const tempId = Date.now().toString();
     const newMessage: Message = {
-      id: Date.now().toString(),
-      sender: isHumanMode ? 'agent' : 'ai',
-      text: inputText,
+      id: tempId,
+      sender: 'agent', // Always agent when typing manually
+      text: messageText,
       time: currentTime
     };
 
-    const updatedChats = chats.map(chat => {
-      if (chat.id === activeChatId) {
-        return { ...chat, messages: [...chat.messages, newMessage] };
-      }
-      return chat;
-    });
-    setChats(updatedChats);
+    setMessages(prev => [...prev, newMessage]);
     setInputText('');
+
+    // Send to Backend
+    try {
+      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
+        body: {
+          action: 'send-message',
+          remoteJid: activeChatId,
+          message: messageText
+        }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // If successful, we could replace the temp ID or just let the realtime subscription fill it in
+      // For now, optimistic update is sufficient.
+
+    } catch (err: any) {
+      console.error("Send failed:", err);
+      showToast('Falha ao enviar mensagem: ' + err.message, 'error');
+      // Rollback UI if needed, but keeping it simple for now
+    }
   };
 
   const toggleHumanMode = () => {
     setIsHumanMode(!isHumanMode);
   };
 
+  // Utility to format phone numbers (remove @s.whatsapp.net and mask)
+  const formatPhoneNumber = (jid: string) => {
+    if (!jid) return '';
+    const number = jid.split('@')[0];
+    // Simple Brazil mask logic (can be expanded)
+    if (number.length === 12 && number.startsWith('55')) {
+      const ddd = number.substring(2, 4);
+      const part1 = number.substring(4, 9);
+      const part2 = number.substring(9);
+      return `(${ddd}) ${part1}-${part2}`;
+    }
+    if (number.length === 13 && number.startsWith('55')) {
+      const ddd = number.substring(2, 4);
+      const part1 = number.substring(4, 9);
+      const part2 = number.substring(9);
+      return `(${ddd}) ${part1}-${part2}`;
+    }
+    return number;
+  };
+
   const filteredChats = chats.filter(chat =>
-    chat.name.toLowerCase().includes(searchQuery.toLowerCase())
+    chat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    chat.id.includes(searchQuery)
   );
+
+  const handleSync = async () => {
+    const toastId = showToast('Sincronizando chats e mensagens...', 'info');
+    try {
+      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
+        body: { action: 'sync-chats' }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      showToast(`Sincronização concluída! ${data.count || 0} chats e ${data.msgCount || 0} mensagens.`, 'success');
+      fetchChats();
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao sincronizar: ' + err.message, 'error');
+    }
+  };
 
   return (
     <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)]">
@@ -98,9 +260,18 @@ const Monitor: React.FC = () => {
         <div className="p-6 border-b border-slate-200 dark:border-[#282e39]">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-xl font-bold tracking-tight text-white font-display">Monitoramento</h1>
-            <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse"></span>
-              <span className="text-[10px] font-black text-primary uppercase">Live</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSync}
+                className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:text-primary transition-all text-xs font-bold text-gray-400 flex items-center gap-1"
+                title="Sincronizar Conversas Antigas"
+              >
+                <span className="material-symbols-outlined text-[16px]">sync</span>
+              </button>
+              <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20">
+                <span className="size-1.5 rounded-full bg-primary animate-pulse"></span>
+                <span className="text-[10px] font-black text-primary uppercase">Live</span>
+              </div>
             </div>
           </div>
 
@@ -121,23 +292,29 @@ const Monitor: React.FC = () => {
               key={chat.id}
               onClick={() => setActiveChatId(chat.id)}
               className={`flex gap-3 p-4 rounded-2xl border transition-all cursor-pointer relative group ${activeChatId === chat.id
-                  ? 'bg-primary/5 border-primary/30 shadow-lg'
-                  : 'border-transparent hover:bg-white/5'
+                ? 'bg-primary/5 border-primary/30 shadow-lg'
+                : 'border-transparent hover:bg-white/5'
                 }`}
             >
               <div className="relative shrink-0">
-                <div className="size-12 rounded-full bg-slate-700 flex items-center justify-center font-bold text-white text-sm border border-white/10 group-hover:border-primary/50 transition-all">
-                  {chat.avatar}
-                </div>
-                <div className="absolute -bottom-1 -right-1 size-4 bg-primary rounded-full border-2 border-[#111318]"></div>
+                {chat.profile_pic ? (
+                  <img src={chat.profile_pic} className="size-12 rounded-full object-cover border border-white/10 group-hover:border-primary/50 transition-all" alt="Avatar" />
+                ) : (
+                  <div className="size-12 rounded-full bg-slate-700 flex items-center justify-center font-bold text-white text-sm border border-white/10 group-hover:border-primary/50 transition-all">
+                    {chat.avatar}
+                  </div>
+                )}
+                {chat.status === 'Novo' && <div className="absolute -bottom-1 -right-1 size-4 bg-primary rounded-full border-2 border-[#111318]"></div>}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start mb-1">
-                  <h3 className="text-sm font-bold truncate text-white tracking-tight">{chat.name}</h3>
-                  <span className="text-[10px] text-text-secondary font-mono opacity-50">{chat.messages[chat.messages.length - 1]?.time}</span>
+                  <h3 className="text-sm font-bold truncate text-white tracking-tight">
+                    {chat.name.includes('@') ? formatPhoneNumber(chat.name) : chat.name}
+                  </h3>
+                  <span className="text-[10px] text-text-secondary font-mono opacity-50">Now</span>
                 </div>
-                <p className="text-xs text-text-secondary truncate leading-relaxed">
-                  {chat.messages[chat.messages.length - 1]?.text}
+                <p className="text-xs text-text-secondary truncate leading-relaxed opacity-60 font-mono">
+                  {formatPhoneNumber(chat.id)}
                 </p>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${chat.color}`}>
@@ -157,23 +334,30 @@ const Monitor: React.FC = () => {
         <header className="shrink-0 h-20 border-b border-white/5 bg-[#111318]/90 backdrop-blur-xl flex items-center justify-between px-8 z-40 shadow-2xl">
           <div className="flex items-center gap-5">
             <div className="relative">
-              <div className="size-12 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-[0_8px_16px_rgba(0,0,0,0.4)] border border-white/10">
-                {activeChat.avatar}
-              </div>
+              {activeChat?.profile_pic ? (
+                <img src={activeChat.profile_pic} className="size-12 rounded-2xl object-cover shadow-[0_8px_16px_rgba(0,0,0,0.4)] border border-white/10" alt="Active Avatar" />
+              ) : (
+                <div className="size-12 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-[0_8px_16px_rgba(0,0,0,0.4)] border border-white/10">
+                  {activeChat?.avatar || '?'}
+                </div>
+              )}
               <div className="absolute -bottom-1 -right-1 size-4 bg-emerald-500 rounded-full border-2 border-[#111318] shadow-lg"></div>
             </div>
 
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-bold text-white tracking-tight font-display">{activeChat.name}</h2>
+                <h2 className="text-xl font-bold text-white tracking-tight font-display">
+                  {activeChat ? (activeChat.name.includes('@') ? formatPhoneNumber(activeChat.name) : activeChat.name) : 'Selecione um chat'}
+                </h2>
+
                 <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
                   <span className="text-[10px] text-text-secondary font-black uppercase tracking-widest">Score:</span>
-                  <span className="text-[10px] text-primary font-black uppercase tracking-widest">{activeChat.score}</span>
+                  <span className="text-[10px] text-primary font-black uppercase tracking-widest">{activeChat?.score || '-'}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${activeChat.color}`}>
-                  {activeChat.status}
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${activeChat?.color || 'text-white'}`}>
+                  {activeChat?.status || 'Unknown'}
                 </span>
                 <span className="text-white/20 text-xs">|</span>
                 <span className="text-[10px] text-text-secondary font-bold uppercase tracking-widest flex items-center gap-1.5">
@@ -196,8 +380,8 @@ const Monitor: React.FC = () => {
             <button
               onClick={toggleHumanMode}
               className={`h-12 px-6 rounded-xl font-black text-xs transition-all flex items-center gap-2 group shadow-xl ${isHumanMode
-                  ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
-                  : 'bg-primary text-[#111318] hover:bg-green-400 shadow-primary/20 hover:scale-105'
+                ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
+                : 'bg-primary text-[#111318] hover:bg-green-400 shadow-primary/20 hover:scale-105'
                 }`}
             >
               <span className="material-symbols-outlined text-[22px] transition-transform group-hover:scale-110">
@@ -213,46 +397,28 @@ const Monitor: React.FC = () => {
           ref={chatContainerRef}
           className="flex-1 overflow-y-auto px-8 md:px-12 py-10 flex flex-col gap-8 custom-scrollbar bg-[radial-gradient(circle_at_center,_#121814_0%,_#0b0e14_100%)] scroll-smooth"
         >
-          {activeChat.messages.map((m) => (
+          {messages.map((m) => (
             <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-start' : 'justify-end'} gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
               {m.sender === 'user' && (
                 <div className="size-10 rounded-xl bg-slate-800 shrink-0 flex items-center justify-center font-bold text-white text-xs border border-white/10 self-end mb-4 shadow-lg">
-                  {activeChat.avatar}
+                  {activeChat?.avatar || 'CLI'}
                 </div>
               )}
 
               <div className={`max-w-[70%] flex flex-col ${m.sender === 'user' ? 'items-start' : 'items-end'}`}>
                 <div className={`px-6 py-4 rounded-3xl text-[15px] leading-relaxed shadow-2xl relative transition-all hover:scale-[1.01] ${m.sender === 'user'
-                    ? 'bg-[#1e242e] text-white rounded-bl-none border border-white/5'
-                    : m.sender === 'agent'
-                      ? 'bg-primary text-[#102216] font-bold rounded-br-none shadow-primary/10'
-                      : 'bg-white/5 border border-white/10 text-white rounded-br-none backdrop-blur-md'
+                  ? 'bg-[#1e242e] text-white rounded-bl-none border border-white/5'
+                  : m.sender === 'agent'
+                    ? 'bg-primary text-[#102216] font-bold rounded-br-none shadow-primary/10'
+                    : 'bg-white/5 border border-white/10 text-white rounded-br-none backdrop-blur-md'
                   }`}>
                   {m.text}
-                  {m.sender === 'agent' && (
-                    <div className="absolute -top-6 right-0 flex items-center gap-1.5 px-2 py-0.5 bg-primary/20 rounded-md border border-primary/20">
-                      <span className="material-symbols-outlined text-[14px] text-primary">support_agent</span>
-                      <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Human Takeover</span>
-                    </div>
-                  )}
-                  {m.sender === 'ai' && (
-                    <div className="absolute -top-6 right-0 flex items-center gap-1.5 px-2 py-0.5 bg-white/5 rounded-md border border-white/10">
-                      <span className="material-symbols-outlined text-[14px] text-text-secondary">smart_toy</span>
-                      <span className="text-[9px] font-black text-text-secondary uppercase tracking-tighter">SolarAI Agent</span>
-                    </div>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-2 px-2 opacity-40">
                   <span className="text-[10px] text-text-secondary font-mono">{m.time}</span>
                   {m.sender !== 'user' && <span className="material-symbols-outlined text-[12px] text-primary">done_all</span>}
                 </div>
               </div>
-
-              {m.sender !== 'user' && (
-                <div className={`size-10 rounded-xl shrink-0 flex items-center justify-center border self-end mb-4 shadow-lg ${m.sender === 'agent' ? 'bg-primary border-primary text-[#111318]' : 'bg-surface-dark border-white/10 text-primary'}`}>
-                  <span className="material-symbols-outlined text-[20px]">{m.sender === 'agent' ? 'person' : 'smart_toy'}</span>
-                </div>
-              )}
             </div>
           ))}
 
