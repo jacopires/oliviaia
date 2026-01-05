@@ -1,12 +1,21 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 import { syncChatsFromEvolution, updateChatProfilePicture } from '../services/evolutionService';
-import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
-import { ChatListItem } from '../components/ui/ChatListItem';
-import { MessageBubble } from '../components/ui/MessageBubble';
-import { GlassCard } from '../components/ui/GlassCard';
+import {
+  Send,
+  Smile,
+  Paperclip,
+  Mic,
+  MoreVertical,
+  RefreshCw,
+  Search,
+  Tag,
+  X,
+  Camera
+} from 'lucide-react';
 
 interface Message {
   id: string;
@@ -28,10 +37,64 @@ interface ChatSession {
   score: string;
   last_message_at: string;
   labels?: string[];
-  is_typing?: boolean; // New: Typing status from realtime?
+  is_typing?: boolean;
 }
 
 const AVAILABLE_LABELS = ['Lead', 'Venda', 'Suporte', 'Urgente', 'Frio'];
+
+// Mock data para demonstração
+const MOCK_CHATS: ChatSession[] = [
+  {
+    id: '1',
+    whatsapp_id: '5511999999999@s.whatsapp.net',
+    name: 'João Silva',
+    status: 'Novo Lead',
+    score: 'A',
+    last_message_at: new Date().toISOString(),
+    labels: ['Lead', 'Urgente'],
+  },
+  {
+    id: '2',
+    whatsapp_id: '5511888888888@s.whatsapp.net',
+    name: 'Maria Santos',
+    status: 'Em Atendimento',
+    score: 'B',
+    last_message_at: new Date(Date.now() - 300000).toISOString(),
+    labels: ['Venda'],
+  },
+  {
+    id: '3',
+    whatsapp_id: '5511777777777@s.whatsapp.net',
+    name: 'Pedro Costa',
+    status: 'Aguardando',
+    score: 'C',
+    last_message_at: new Date(Date.now() - 600000).toISOString(),
+  },
+];
+
+const MOCK_MESSAGES: Message[] = [
+  {
+    id: '1',
+    chat_id: '1',
+    sender: 'user',
+    text: 'Olá, gostaria de saber mais sobre os serviços',
+    created_at: new Date(Date.now() - 120000).toISOString(),
+  },
+  {
+    id: '2',
+    chat_id: '1',
+    sender: 'agent',
+    text: 'Olá! Fico feliz em ajudar. Temos diversas soluções disponíveis. Qual área te interessa mais?',
+    created_at: new Date(Date.now() - 60000).toISOString(),
+  },
+  {
+    id: '3',
+    chat_id: '1',
+    sender: 'user',
+    text: 'Estou interessado em automação de atendimento',
+    created_at: new Date(Date.now() - 30000).toISOString(),
+  },
+];
 
 const Monitor: React.FC = () => {
   const [chats, setChats] = useState<ChatSession[]>([]);
@@ -41,20 +104,22 @@ const Monitor: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isHumanMode, setIsHumanMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showLabelMenu, setShowLabelMenu] = useState(false);
   const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
-
-  // Audio Recorder Ref
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const [useMockData, setUseMockData] = useState(false);
 
   const { showToast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Realtime Subscription
   useEffect(() => {
+    if (useMockData) {
+      setChats(MOCK_CHATS);
+      setIsLoading(false);
+      return;
+    }
+
     const chatSubscription = supabase
       .channel('public:chats')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
@@ -78,7 +143,7 @@ const Monitor: React.FC = () => {
       supabase.removeChannel(chatSubscription);
       supabase.removeChannel(messageSubscription);
     };
-  }, [activeChatId]);
+  }, [activeChatId, useMockData]);
 
   // Auto Scroll
   useEffect(() => {
@@ -87,45 +152,77 @@ const Monitor: React.FC = () => {
     }
   }, [activeMessages]);
 
+  // Fetch messages when chat changes
+  useEffect(() => {
+    if (activeChatId) {
+      if (useMockData) {
+        setActiveMessages(MOCK_MESSAGES.filter(m => m.chat_id === activeChatId));
+      } else {
+        fetchMessages(activeChatId);
+      }
+    }
+  }, [activeChatId, useMockData]);
+
   const fetchChats = async () => {
-    const { data } = await supabase
-      .from('chats')
-      .select('*')
-      .ilike('whatsapp_id', '%@s.whatsapp.net')
-      .order('last_message_at', { ascending: false });
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('chats')
+        .select('*')
+        .ilike('whatsapp_id', '%@s.whatsapp.net')
+        .order('last_message_at', { ascending: false });
 
-    if (data) {
-      const mapped = data.map((d: any) => ({
-        ...d,
-        avatar: d.avatar_url || d.avatar
-      }));
-      setChats(mapped);
+      if (error) throw error;
 
-      if (!activeChatId && mapped.length > 0) setActiveChatId(mapped[0].id);
+      if (data) {
+        const mapped = data.map((d: any) => ({
+          ...d,
+          avatar: d.avatar_url || d.avatar
+        }));
+        setChats(mapped);
+
+        if (!activeChatId && mapped.length > 0) {
+          setActiveChatId(mapped[0].id);
+        }
+      }
+    } catch (error: any) {
+      console.error('Erro ao buscar chats:', error);
+      showToast('Erro ao carregar conversas. Usando dados de demonstração.', 'warning');
+      setUseMockData(true);
+      setChats(MOCK_CHATS);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const fetchMessages = async (chatId: string) => {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: true });
 
-    if (data) setActiveMessages(data as any);
+      if (error) throw error;
+      setActiveMessages(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar mensagens:', error);
+      setActiveMessages([]);
+    }
   };
-
-  useEffect(() => {
-    if (activeChatId) fetchMessages(activeChatId);
-    setShowLabelMenu(false); // Close menus on chat switch
-    setShowEmojiPicker(false);
-  }, [activeChatId]);
 
   const handleSync = async () => {
     setIsSyncing(true);
     showToast('Sincronizando conversas...', 'info');
+
     try {
-      const { data: integrations } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1);
+      const { data: integrations, error: integrationsError } = await supabase
+        .from('integrations_whatsapp')
+        .select('instance_id')
+        .limit(1);
+
+      if (integrationsError) throw integrationsError;
+
       const instanceId = integrations?.[0]?.instance_id;
 
       if (!instanceId) {
@@ -134,297 +231,460 @@ const Monitor: React.FC = () => {
       }
 
       const count = await syncChatsFromEvolution(instanceId);
-      showToast(`Sincronização concluída! ${count} chats atualizados.`, 'success');
+      showToast(`✅ Sincronização concluída! ${count} chats atualizados.`, 'success');
       fetchChats();
     } catch (err: any) {
-      console.error(err);
-      showToast('Erro ao sincronizar: ' + err.message, 'error');
+      console.error('Erro na sincronização:', err);
+
+      // Tratamento granular de erros
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        showToast(
+          '❌ Não foi possível conectar à IA. Verifique se a Edge Function "whatsapp-manager" está ativa.',
+          'error'
+        );
+
+        // Oferecer fallback
+        const useMock = window.confirm(
+          'Deseja carregar Dados de Demonstração para visualizar a interface?'
+        );
+        if (useMock) {
+          setUseMockData(true);
+          setChats(MOCK_CHATS);
+          showToast('📊 Modo Demonstração ativado', 'info');
+        }
+      } else {
+        showToast(`Erro ao sincronizar: ${err.message}`, 'error');
+      }
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const fileName = `${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from('chat-media').upload(fileName, file);
-    if (error) { showToast("Erro upload", "error"); return; }
-
-    const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-
-    const currentChat = chats.find(c => c.id === activeChatId);
-    if (!currentChat) return;
-
-    let type = 'document';
-    if (file.type.startsWith('image/')) type = 'image';
-    else if (file.type.startsWith('video/')) type = 'video';
-    else if (file.type.startsWith('audio/')) type = 'audio';
-
-    await supabase.functions.invoke('whatsapp-manager', {
-      body: { action: 'send-media', remoteJid: currentChat.whatsapp_id, mediaUrl: publicUrl, mediaType: type, caption: inputText }
-    });
-    setInputText('');
-    showToast("Mídia enviada!", "success");
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      mediaRecorderRef.current.ondataavailable = (event) => audioChunksRef.current.push(event.data);
-      mediaRecorderRef.current.onstop = sendAudioRecording;
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-    } catch (e) { showToast("Erro microfone", "error"); }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); }
-  };
-
-  const sendAudioRecording = async () => {
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
-    const fileName = `audio-${Date.now()}.mp3`;
-    const { error } = await supabase.storage.from('chat-media').upload(fileName, audioBlob);
-    if (error) { showToast("Erro upload áudio", "error"); return; }
-    const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-
-    const currentChat = chats.find(c => c.id === activeChatId);
-    if (!currentChat) return;
-
-    await supabase.functions.invoke('whatsapp-manager', {
-      body: { action: 'send-audio', remoteJid: currentChat.whatsapp_id, mediaUrl: publicUrl }
-    });
-    showToast("Áudio enviado!", "success");
-  };
-
   const handleSendMessage = async () => {
     if (!inputText.trim() || !activeChatId) return;
+
     const currentChat = chats.find(c => c.id === activeChatId);
     if (!currentChat) return;
+
     const msgText = inputText;
     setInputText('');
-    const { error } = await supabase.functions.invoke('whatsapp-manager', {
-      body: { action: 'send-message', remoteJid: currentChat.whatsapp_id, message: msgText }
-    });
-    if (error) showToast("Erro ao enviar mensagem", "error");
+
+    if (useMockData) {
+      // Mock send
+      const newMsg: Message = {
+        id: Date.now().toString(),
+        chat_id: activeChatId,
+        sender: 'agent',
+        text: msgText,
+        created_at: new Date().toISOString(),
+      };
+      setActiveMessages(prev => [...prev, newMsg]);
+      showToast('✅ Mensagem enviada (modo demo)', 'success');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.functions.invoke('whatsapp-manager', {
+        body: { action: 'send-message', remoteJid: currentChat.whatsapp_id, message: msgText }
+      });
+
+      if (error) throw error;
+      showToast('✅ Mensagem enviada', 'success');
+    } catch (error: any) {
+      console.error('Erro ao enviar mensagem:', error);
+      showToast('❌ Erro ao enviar mensagem', 'error');
+    }
   };
 
-  const handleEncerrar = async () => {
+  const handleUpdatePhoto = async () => {
     if (!activeChatId) return;
-    await supabase.from('chats').update({ status: 'Encerrado', created_at: new Date() }).eq('id', activeChatId);
-    showToast("Atendimento encerrado", "info");
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) return;
+
+    setIsLoadingPhoto(true);
+    try {
+      const { data: integrations } = await supabase
+        .from('integrations_whatsapp')
+        .select('instance_id')
+        .limit(1);
+
+      const instanceId = integrations?.[0]?.instance_id;
+      if (!instanceId) {
+        showToast('Nenhuma instância conectada', 'error');
+        return;
+      }
+
+      await updateChatProfilePicture(instanceId, activeChatId, currentChat.whatsapp_id);
+      showToast('✅ Foto atualizada', 'success');
+      fetchChats();
+    } catch (error) {
+      showToast('❌ Erro ao atualizar foto', 'error');
+    } finally {
+      setIsLoadingPhoto(false);
+    }
   };
 
   const toggleLabel = async (label: string) => {
     if (!activeChatId) return;
     const currentChat = chats.find(c => c.id === activeChatId);
     if (!currentChat) return;
+
     const currentLabels = currentChat.labels || [];
     const newLabels = currentLabels.includes(label)
       ? currentLabels.filter(l => l !== label)
       : [...currentLabels, label];
 
-    await supabase.from('chats').update({ labels: newLabels }).eq('id', activeChatId);
-  };
+    if (useMockData) {
+      setChats(prev => prev.map(c =>
+        c.id === activeChatId ? { ...c, labels: newLabels } : c
+      ));
+      return;
+    }
 
-  const onEmojiClick = (emojiData: EmojiClickData) => {
-    setInputText((prev) => prev + emojiData.emoji);
-    setShowEmojiPicker(false);
+    await supabase.from('chats').update({ labels: newLabels }).eq('id', activeChatId);
+    fetchChats();
   };
 
   const activeChat = chats.find(c => c.id === activeChatId);
-  const filteredChats = chats.filter(chat => chat.name?.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredChats = chats.filter(chat =>
+    chat.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
 
   return (
-    <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)]">
-
-      {/* SIDEBAR */}
-      <aside className="hidden md:flex flex-col w-[350px] border-r border-slate-200 dark:border-[#282e39] bg-white dark:bg-[#111318] shrink-0">
-        <div className="p-4 border-b border-slate-200 dark:border-[#282e39]">
+    <div className="flex-1 flex overflow-hidden h-screen p-4 gap-4">
+      {/* SIDEBAR - Lista de Chats */}
+      <motion.aside
+        className="w-[380px] shrink-0 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        {/* Header */}
+        <div className="p-6 border-b border-white/5">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-lg font-bold text-slate-800 dark:text-white">Monitoramento Ao Vivo</h1>
-            <button onClick={handleSync} disabled={isSyncing} className="text-xs bg-slate-100 dark:bg-white/5 hover:bg-slate-200 text-slate-600 dark:text-white px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 flex items-center gap-2">
-              <span className={`material-symbols-outlined text-[14px] ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
-              {isSyncing ? '...' : 'Sync'}
-            </button>
+            <h1 className="text-xl font-bold text-text-primary">Conversas</h1>
+            <motion.button
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all disabled:opacity-50"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <RefreshCw
+                size={18}
+                className={`text-primary ${isSyncing ? 'animate-spin' : ''}`}
+              />
+            </motion.button>
           </div>
-          <input className="w-full bg-slate-100 dark:bg-[#1e242e] border-none rounded-lg px-4 py-2 text-slate-800 dark:text-white text-sm outline-none" placeholder="Buscar conversa..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {filteredChats.map(chat => (
-            <ChatListItem
-              key={chat.id}
-              chat={chat}
-              isActive={activeChatId === chat.id}
-              onClick={() => setActiveChatId(chat.id)}
-              hasNewMessage={false}
+          {/* Search */}
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+            <input
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-10 py-2.5 text-sm text-text-primary placeholder-text-tertiary outline-none focus:border-primary/50 transition-all"
+              placeholder="Buscar conversa..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
-          ))}
+          </div>
         </div>
-      </aside>
 
-      {/* CHAT AREA */}
-      <main className="flex-1 flex flex-col bg-slate-50 dark:bg-[#0b0c10] relative">
-        {!activeChatId ? (
-          <div className="flex-1 flex items-center justify-center text-slate-400">Selecione um chat para monitorar</div>
-        ) : (
-          <>
-            {/* HEADER */}
-            <div className="h-16 px-6 border-b border-slate-200 dark:border-[#282e39] flex items-center justify-between bg-white dark:bg-[#111318]">
-              <div className="flex items-center gap-3">
-                <div className="relative group">
-                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-700 overflow-hidden flex items-center justify-center">
-                    {activeChat?.avatar ? <img src={activeChat.avatar} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-white font-bold">{activeChat?.name?.substring(0, 2).toUpperCase()}</span>}
-                  </div>
-                  {/* Botão para atualizar foto de perfil */}
-                  {!activeChat?.avatar && (
-                    <button
-                      onClick={async () => {
-                        if (!activeChat || isLoadingPhoto) return;
-                        setIsLoadingPhoto(true);
-                        try {
-                          const { data: integrations } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1);
-                          const instanceId = integrations?.[0]?.instance_id;
-                          if (instanceId) {
-                            const success = await updateChatProfilePicture(instanceId, activeChat.id, activeChat.whatsapp_id);
-                            if (success) {
-                              showToast('Foto de perfil atualizada!', 'success');
-                              fetchChats();
-                            } else {
-                              showToast('Foto de perfil não disponível', 'info');
-                            }
-                          }
-                        } catch (err) {
-                          showToast('Erro ao buscar foto', 'error');
-                        } finally {
-                          setIsLoadingPhoto(false);
-                        }
-                      }}
-                      disabled={isLoadingPhoto}
-                      className="absolute -bottom-1 -right-1 w-5 h-5 bg-indigo-500 hover:bg-indigo-600 rounded-full flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100"
-                      title="Buscar foto do WhatsApp"
-                    >
-                      <span className={`material-symbols-outlined text-white text-[12px] ${isLoadingPhoto ? 'animate-spin' : ''}`}>
-                        {isLoadingPhoto ? 'sync' : 'photo_camera'}
-                      </span>
-                    </button>
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-800 dark:text-white">{activeChat?.name}</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{activeChat?.whatsapp_id}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 relative">
-                {/* LABELS BUTTON */}
-                <div className="relative">
-                  <button onClick={() => setShowLabelMenu(!showLabelMenu)} className="p-2 text-slate-400 hover:text-indigo-500 rounded-full hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
-                    <span className="material-symbols-outlined text-[20px]">label</span>
-                  </button>
-                  {showLabelMenu && (
-                    <div className="absolute right-0 top-10 w-48 bg-white dark:bg-[#1e242e] shadow-xl border border-slate-200 dark:border-white/10 rounded-xl z-20 p-2">
-                      <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 px-2 py-1 mb-1">Etiquetas</h4>
-                      {AVAILABLE_LABELS.map(label => (
-                        <button
-                          key={label}
-                          onClick={() => toggleLabel(label)}
-                          className={`w-full text-left px-3 py-2 text-sm rounded-lg flex justify-between items-center hover:bg-slate-100 dark:hover:bg-white/5 ${activeChat?.labels?.includes(label) ? 'text-indigo-500 font-medium' : 'text-slate-700 dark:text-slate-300'}`}
-                        >
-                          {label}
-                          {activeChat?.labels?.includes(label) && <span className="material-symbols-outlined text-[16px]">check</span>}
-                        </button>
-                      ))}
+        {/* Chat List */}
+        <div className="flex-1 overflow-y-auto p-2">
+          {isLoading ? (
+            // Skeleton Loading
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="p-4 rounded-xl bg-white/5 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-white/10" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-white/10 rounded w-3/4" />
+                      <div className="h-3 bg-white/10 rounded w-1/2" />
                     </div>
-                  )}
+                  </div>
                 </div>
-
-                <button onClick={handleEncerrar} className="px-3 py-1 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg">Encerrar</button>
-
-                <div className={`px-3 py-1 rounded-full text-xs font-medium ${isHumanMode ? 'bg-indigo-500/10 text-indigo-500' : 'bg-green-500/10 text-green-500'}`}>
-                  {isHumanMode ? 'HUMANO' : 'IA'}
-                </div>
-
-                <button onClick={() => setIsHumanMode(!isHumanMode)} className={`w-12 h-6 rounded-full p-1 transition-colors ${isHumanMode ? 'bg-indigo-500' : 'bg-green-500'}`}>
-                  <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isHumanMode ? 'translate-x-6' : 'translate-x-0'}`} />
-                </button>
-              </div>
+              ))}
             </div>
+          ) : filteredChats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center p-6">
+              <p className="text-text-secondary mb-4">Nenhuma conversa encontrada</p>
+              <motion.button
+                onClick={handleSync}
+                className="px-4 py-2 bg-primary/20 text-primary rounded-xl hover:bg-primary/30 transition-all"
+                whileHover={{ scale: 1.05 }}
+              >
+                Sincronizar Agora
+              </motion.button>
+            </div>
+          ) : (
+            <AnimatePresence>
+              {filteredChats.map((chat, index) => (
+                <motion.div
+                  key={chat.id}
+                  className={`p-4 rounded-xl cursor-pointer transition-all mb-2 ${activeChatId === chat.id
+                      ? 'bg-gradient-to-r from-primary/20 to-transparent border-l-4 border-primary shadow-glow-green'
+                      : 'hover:bg-gradient-to-r hover:from-white/5 hover:to-transparent'
+                    }`}
+                  onClick={() => setActiveChatId(chat.id)}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  whileHover={{ x: 4 }}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Avatar */}
+                    <div className="relative">
+                      {chat.avatar ? (
+                        <img
+                          src={chat.avatar}
+                          alt={chat.name}
+                          className="w-12 h-12 rounded-full object-cover border-2 border-primary/30"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/20 to-accent-blue/20 border-2 border-primary/30 flex items-center justify-center">
+                          <span className="text-text-primary font-bold text-sm">
+                            {getInitials(chat.name)}
+                          </span>
+                        </div>
+                      )}
+                      {chat.is_typing && (
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-background-dark" />
+                      )}
+                    </div>
 
-            {/* MESSAGES */}
-            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4">
-              {activeMessages.map(msg => {
-                const isAgent = msg.sender === 'agent' || msg.sender === 'ai';
-                const renderContent = () => {
-                  if (msg.media_type === 'image') return <img src={msg.media_url} alt="Media" className="max-w-[200px] rounded-lg mb-2" />;
-                  if (msg.media_type === 'audio') return <audio controls src={msg.media_url} className="mb-2 w-[240px]" />;
-                  if (msg.media_type === 'video') return <video controls src={msg.media_url} className="max-w-[200px] rounded-lg mb-2" />;
-                  return null;
-                };
-                return (
-                  <div key={msg.id} className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${isAgent ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white dark:bg-[#1e242e] text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-100 dark:border-white/5'}`}>
-                      {renderContent()}
-                      {msg.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>}
-                      <div className={`text-[10px] mt-2 flex items-center justify-end gap-1 ${isAgent ? 'text-indigo-200' : 'text-slate-400'}`}>
-                        {msg.sender === 'agent' && <span className="uppercase">Você</span>}
-                        {msg.sender === 'ai' && <span className="uppercase">IA</span>}
-                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm font-semibold text-text-primary truncate">
+                          {chat.name}
+                        </p>
+                        <span className="text-[10px] text-text-tertiary font-mono whitespace-nowrap ml-2">
+                          {new Date(chat.last_message_at).toLocaleTimeString('pt-BR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-secondary">
+                          {chat.status}
+                        </span>
+
+                        {chat.labels && chat.labels.length > 0 && (
+                          <div className="flex gap-1">
+                            {chat.labels.slice(0, 2).map((label, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                );
-              })}
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
+        </div>
+      </motion.aside>
+
+      {/* CHAT AREA */}
+      <motion.div
+        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
+        initial={{ x: 20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
+        {activeChat ? (
+          <>
+            {/* Chat Header */}
+            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {/* Avatar */}
+                <div className="relative group">
+                  {activeChat.avatar ? (
+                    <img
+                      src={activeChat.avatar}
+                      alt={activeChat.name}
+                      className="w-14 h-14 rounded-full object-cover border-2 border-primary/30"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-accent-blue/20 border-2 border-primary/30 flex items-center justify-center">
+                      <span className="text-text-primary font-bold">
+                        {getInitials(activeChat.name)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Update Photo Button */}
+                  <motion.button
+                    onClick={handleUpdatePhoto}
+                    disabled={isLoadingPhoto}
+                    className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    whileHover={{ scale: 1.05 }}
+                  >
+                    <Camera size={20} className="text-white" />
+                  </motion.button>
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-bold text-text-primary">{activeChat.name}</h2>
+                  <p className="text-sm text-text-secondary">{activeChat.status}</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <motion.button
+                    onClick={() => setShowLabelMenu(!showLabelMenu)}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all"
+                    whileHover={{ scale: 1.05 }}
+                  >
+                    <Tag size={18} className="text-text-primary" />
+                  </motion.button>
+
+                  {/* Label Menu */}
+                  {showLabelMenu && (
+                    <motion.div
+                      className="absolute right-0 top-12 bg-surface-dark border border-white/10 rounded-xl p-2 shadow-glass z-10 min-w-[150px]"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      {AVAILABLE_LABELS.map((label) => (
+                        <button
+                          key={label}
+                          onClick={() => toggleLabel(label)}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeChat.labels?.includes(label)
+                              ? 'bg-primary/20 text-primary'
+                              : 'hover:bg-white/5 text-text-secondary'
+                            }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </div>
+
+                <motion.button
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all"
+                  whileHover={{ scale: 1.05 }}
+                >
+                  <MoreVertical size={18} className="text-text-primary" />
+                </motion.button>
+              </div>
             </div>
 
-            {/* INPUT */}
-            <div className="p-4 bg-white dark:bg-[#111318] border-t border-slate-200 dark:border-[#282e39] relative">
-              {/* EMOJI PICKER POPUP */}
-              {showEmojiPicker && (
-                <div className="absolute bottom-20 left-4 z-20 shadow-xl rounded-xl overflow-hidden">
-                  <EmojiPicker onEmojiClick={onEmojiClick} theme="auto" width={300} height={400} />
-                </div>
-              )}
+            {/* Messages Area */}
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto p-6 space-y-4"
+            >
+              <AnimatePresence>
+                {activeMessages.map((msg, index) => (
+                  <motion.div
+                    key={msg.id}
+                    className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <div
+                      className={`max-w-[70%] px-4 py-3 rounded-2xl ${msg.sender === 'user'
+                          ? 'bg-white/5 text-text-primary rounded-bl-sm'
+                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-br-sm shadow-glow-green'
+                        }`}
+                    >
+                      {msg.media_url && (
+                        <div className="mb-2">
+                          {msg.media_type === 'image' && (
+                            <img
+                              src={msg.media_url}
+                              alt="Media"
+                              className="max-w-full rounded-lg"
+                            />
+                          )}
+                        </div>
+                      )}
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                        {msg.text}
+                      </p>
+                      <span className="text-[10px] opacity-60 mt-1 block">
+                        {new Date(msg.created_at).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
 
-              <div className="flex gap-2 max-w-4xl mx-auto items-end">
-                <div className="flex gap-1 pb-2">
-                  <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="p-2 text-slate-400 hover:text-yellow-500 transition-colors rounded-full hover:bg-slate-100">
-                    <span className="material-symbols-outlined">sentiment_satisfied</span>
-                  </button>
-                  <label className="p-2 text-slate-400 hover:text-indigo-500 cursor-pointer transition-colors rounded-full hover:bg-slate-100">
-                    <span className="material-symbols-outlined">attach_file</span>
-                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,video/*,audio/*" />
-                  </label>
-                  <button onClick={isRecording ? stopRecording : startRecording} className={`p-2 transition-colors rounded-full ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-red-500 hover:bg-slate-100'}`}>
-                    <span className="material-symbols-outlined">{isRecording ? 'stop' : 'mic'}</span>
-                  </button>
-                </div>
+            {/* Input Area - Dynamic Island Style */}
+            <div className="p-6">
+              <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 p-2 flex items-center gap-2">
+                <motion.button
+                  className="p-2 rounded-xl hover:bg-white/5 transition-all"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Smile size={20} className="text-text-secondary" />
+                </motion.button>
 
-                <textarea
+                <motion.button
+                  className="p-2 rounded-xl hover:bg-white/5 transition-all"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Paperclip size={20} className="text-text-secondary" />
+                </motion.button>
+
+                <input
+                  type="text"
                   value={inputText}
-                  onChange={e => setInputText(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder="Digite sua mensagem..."
-                  className="flex-1 bg-slate-100 dark:bg-[#1e242e] border-none rounded-2xl px-4 py-3 text-slate-800 dark:text-white outline-none resize-none h-[50px] min-h-[50px] max-h-[120px]"
+                  className="flex-1 bg-transparent border-none outline-none text-text-primary placeholder-text-tertiary px-2"
                 />
-                <button onClick={handleSendMessage} disabled={!inputText.trim()} className="mb-1 w-[46px] h-[42px] bg-green-500 hover:bg-green-600 text-white rounded-xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-green-500/20">
-                  <span className="material-symbols-outlined text-[20px]">send</span>
-                </button>
+
+                <motion.button
+                  onClick={handleSendMessage}
+                  disabled={!inputText.trim()}
+                  className="p-3 rounded-xl bg-primary text-background-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Send size={18} />
+                </motion.button>
               </div>
             </div>
           </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-text-secondary mb-4">Selecione uma conversa para começar</p>
+            </div>
+          </div>
         )}
-      </main>
+      </motion.div>
     </div>
   );
 };
