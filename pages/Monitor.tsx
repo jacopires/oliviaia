@@ -359,15 +359,10 @@ const Monitor: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)] p-4 gap-4">
-      {/* SIDEBAR - Lista de Chats */}
-      <motion.aside
-        className="w-[380px] shrink-0 bg-black/20 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
-        initial={{ x: -20, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        {/* Header */}
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background-dark">
+      {/* SIDEBAR - Scroll Independente */}
+      <aside className="w-96 flex flex-col border-r border-white/5 bg-black/20 backdrop-blur-xl">
+        {/* Header da Sidebar */}
         <div className="p-6 border-b border-white/5 shrink-0">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold text-text-primary">Conversas</h1>
@@ -397,8 +392,8 @@ const Monitor: React.FC = () => {
           </div>
         </div>
 
-        {/* Chat List - SCROLLABLE */}
-        <div className="flex-1 overflow-y-auto p-2">
+        {/* Lista de Chats - SCROLL INDEPENDENTE */}
+        <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
           {isLoading ? (
             // Skeleton Loading
             <div className="space-y-2">
@@ -500,20 +495,15 @@ const Monitor: React.FC = () => {
             </AnimatePresence>
           )}
         </div>
-      </motion.aside>
+      </aside>
 
-      {/* CHAT AREA - FLOATING UI ARCHITECTURE */}
-      <motion.div
-        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden relative h-full flex flex-col"
-        initial={{ x: 20, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
-      >
+      {/* ÁREA DE CHAT - WhatsApp Experience */}
+      <main className="flex-1 flex flex-col relative overflow-hidden bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-background-dark via-background-dark to-surface-dark">
         {activeChat ? (
           <>
-            {/* Chat Header - FIXO */}
-            <div className="p-6 border-b border-white/5 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-4">
+            {/* 1. Header Fixo */}
+            <header className="h-20 shrink-0 z-20 bg-black/10 backdrop-blur-md border-b border-white/5 flex items-center px-6">
+              <div className="flex items-center gap-4 flex-1">
                 {/* Avatar */}
                 <div className="relative group">
                   {activeChat.avatar ? (
@@ -588,12 +578,12 @@ const Monitor: React.FC = () => {
                   <MoreVertical size={18} className="text-text-primary" />
                 </motion.button>
               </div>
-            </div>
+            </header>
 
-            {/* Messages Area - SCROLLABLE COM PB-40 */}
+            {/* 2. Lista de Mensagens - SCROLL ZONE (pb-40 obrigatório) */}
             <div
               ref={chatContainerRef}
-              className="flex-1 h-full overflow-y-auto p-6 pb-40 space-y-4"
+              className="flex-1 overflow-y-auto p-6 pb-40 space-y-6 custom-scrollbar"
             >
               <AnimatePresence>
                 {activeMessages.map((msg, index) => (
@@ -637,14 +627,14 @@ const Monitor: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {/* Input Area - ABSOLUTE POSITIONING (FLOATING UI) */}
-            <motion.div
-              className="absolute bottom-6 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[95%] md:max-w-4xl z-50"
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-            >
-              <div className="bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-3 flex items-center gap-2 shadow-2xl shadow-black/50">
+            {/* 3. Input Flutuante - Dynamic Island (z-30) */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
+              <motion.div
+                className="bg-black/60 backdrop-blur-2xl border border-white/10 p-3 rounded-2xl shadow-2xl flex items-center gap-2"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3 }}
+              >
                 <motion.button
                   className="p-2 rounded-xl hover:bg-white/5 transition-all"
                   whileHover={{ scale: 1.05 }}
@@ -679,8 +669,8 @@ const Monitor: React.FC = () => {
                 >
                   <Send size={18} />
                 </motion.button>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -689,7 +679,7 @@ const Monitor: React.FC = () => {
             </div>
           </div>
         )}
-      </motion.div>
+      </main>
     </div>
   );
 };
