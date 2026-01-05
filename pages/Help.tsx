@@ -9,7 +9,7 @@ const Help: React.FC = () => {
     { title: 'Primeiros Passos', icon: 'rocket_launch', desc: 'Aprenda a configurar seu primeiro agente em minutos.', count: 5 },
     { title: 'Fluxo & I.A.', icon: 'account_tree', desc: 'Dicas avançadas de prompts e encadeamento lógico.', count: 8 },
     { title: 'Faturamento', icon: 'payments', desc: 'Gestão de créditos, tokens e planos de assinatura.', count: 3 },
-    { title: 'API & Webhooks', icon: 'code', desc: 'Integre o SolarAI com seu CRM via Webhooks.', count: 12 },
+    { title: 'API & Webhooks', icon: 'code', desc: 'Integre o Olivia IA com seu CRM via Webhooks.', count: 12 },
   ];
 
   const faqs = [
@@ -114,7 +114,7 @@ const Help: React.FC = () => {
         <footer className="mt-10 p-10 bg-surface-dark border border-white/5 rounded-[40px] flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
           <div className="flex flex-col gap-2">
             <h3 className="text-xl font-bold text-white">Documentação para Desenvolvedores</h3>
-            <p className="text-text-secondary text-sm">Integre o SolarAI via REST API e gerencie múltiplos agentes via código.</p>
+            <p className="text-text-secondary text-sm">Integre o Olivia IA via REST API e gerencie múltiplos agentes via código.</p>
           </div>
           <button className="px-8 py-3 rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all shrink-0">
             Acessar Docs API

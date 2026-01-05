@@ -58,7 +58,7 @@ const Sidebar: React.FC = () => {
             </div>
             {!isCollapsed && (
               <div className="flex flex-col">
-                <h1 className="font-display font-semibold text-white/90 text-lg tracking-tight leading-none">SolarAI</h1>
+                <h1 className="font-display font-semibold text-white/90 text-lg tracking-tight leading-none">Olivia IA</h1>
                 <p className="text-[9px] text-gray-500 uppercase tracking-[0.2em] mt-1 font-medium">
                   {isAdmin ? 'PORTAL GESTÃO' : 'PORTAL CLIENTE'}
                 </p>

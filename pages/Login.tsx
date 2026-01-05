@@ -90,7 +90,7 @@ const Login: React.FC = () => {
             <span className="material-symbols-outlined text-primary">solar_power</span>
           </div>
           <div className="flex flex-col leading-none">
-            <span className="text-xl font-bold tracking-tight text-white/90">SolarAI</span>
+            <span className="text-xl font-bold tracking-tight text-white/90">Olivia IA</span>
             <span className="text-[9px] text-primary/60 font-medium tracking-[0.3em] uppercase">Smarter Solar</span>
           </div>
         </div>
@@ -101,7 +101,7 @@ const Login: React.FC = () => {
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="mb-14">
                 <h1 className="text-3xl font-bold text-white tracking-tight mb-4">Bem-vindo.</h1>
-                <p className="text-gray-400 text-base font-light leading-relaxed">Selecione o portal de acesso para continuar sua jornada na plataforma SolarAI.</p>
+                <p className="text-gray-400 text-base font-light leading-relaxed">Selecione o portal de acesso para continuar sua jornada na plataforma Olivia IA.</p>
               </div>
 
               <div className="space-y-4">

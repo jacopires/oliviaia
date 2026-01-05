@@ -29,8 +29,8 @@ const AdminSettings: React.FC = () => {
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={`px-6 py-3 text-sm font-medium transition-colors relative ${activeTab === tab
-                                    ? 'text-primary'
-                                    : 'text-gray-500 hover:text-gray-300'
+                                ? 'text-primary'
+                                : 'text-gray-500 hover:text-gray-300'
                                 }`}
                         >
                             {tab === 'general' && 'Geral'}
@@ -57,11 +57,11 @@ const AdminSettings: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="flex flex-col gap-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nome da Aplicação</label>
-                                        <input type="text" defaultValue="SolarAI Dashboard" className="bg-slate-50 dark:bg-background-dark border border-gray-200 dark:border-white/10 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-colors text-sm" />
+                                        <input type="text" defaultValue="Olivia IA Dashboard" className="bg-slate-50 dark:bg-background-dark border border-gray-200 dark:border-white/10 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-colors text-sm" />
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Email de Suporte</label>
-                                        <input type="email" defaultValue="support@solarai.com" className="bg-slate-50 dark:bg-background-dark border border-gray-200 dark:border-white/10 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-colors text-sm" />
+                                        <input type="email" defaultValue="support@oliviaia.com" className="bg-slate-50 dark:bg-background-dark border border-gray-200 dark:border-white/10 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-colors text-sm" />
                                     </div>
                                 </div>
                             </div>

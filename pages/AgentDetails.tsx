@@ -62,11 +62,10 @@ const AgentDetails: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as TabType)}
-            className={`flex items-center gap-2 py-4 px-2 border-b-2 transition-all relative whitespace-nowrap group ${
-              activeTab === tab.id 
-                ? 'border-primary text-primary' 
+            className={`flex items-center gap-2 py-4 px-2 border-b-2 transition-all relative whitespace-nowrap group ${activeTab === tab.id
+                ? 'border-primary text-primary'
                 : 'border-transparent text-text-secondary hover:text-white'
-            }`}
+              }`}
           >
             <span className={`material-symbols-outlined text-[22px] ${activeTab === tab.id ? 'fill' : 'group-hover:scale-110 transition-transform'}`}>
               {tab.icon}
@@ -81,7 +80,7 @@ const AgentDetails: React.FC = () => {
 
       {/* Tab Content */}
       <main className="flex-1 mt-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        
+
         {/* ABA: GERAL */}
         {activeTab === 'geral' && (
           <div className="flex flex-col gap-8 max-w-5xl">
@@ -100,7 +99,7 @@ const AgentDetails: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-3">
                     <label className="text-xs font-black text-text-secondary uppercase tracking-widest px-1">Nome de Exibição</label>
-                    <input className="bg-[#0b140e] border border-surface-border rounded-xl px-4 py-3 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" type="text" defaultValue="Solar Lead Qualifier - Alpha"/>
+                    <input className="bg-[#0b140e] border border-surface-border rounded-xl px-4 py-3 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" type="text" defaultValue="Solar Lead Qualifier - Alpha" />
                   </div>
                   <div className="flex flex-col gap-3">
                     <label className="text-xs font-black text-text-secondary uppercase tracking-widest px-1">Tom de Voz</label>
@@ -115,7 +114,7 @@ const AgentDetails: React.FC = () => {
                 <div className="flex flex-col gap-3">
                   <label className="text-xs font-black text-text-secondary uppercase tracking-widest px-1">Prompt do Sistema (Persona)</label>
                   <div className="relative group">
-                    <textarea className="w-full h-48 bg-[#0b140e] border border-surface-border rounded-xl px-5 py-4 text-white focus:border-primary outline-none font-mono text-sm leading-relaxed resize-none transition-all">Você é um consultor especialista em energia solar da SolarAI. Seu objetivo é qualificar leads residenciais perguntando sobre o valor médio da conta de luz, tipo de telhado e localização. Seja sempre cordial, mas mantenha o foco em agendar uma visita técnica.</textarea>
+                    <textarea className="w-full h-48 bg-[#0b140e] border border-surface-border rounded-xl px-5 py-4 text-white focus:border-primary outline-none font-mono text-sm leading-relaxed resize-none transition-all">Você é um consultor especialista da Olivia IA. Seu objetivo é qualificar leads perguntando sobre suas necessidades, orçamento e localização. Seja sempre cordial, mas mantenha o foco em agendar uma visita técnica.</textarea>
                     <div className="absolute bottom-4 right-4 text-[10px] text-primary font-bold bg-primary/10 px-2 py-1 rounded border border-primary/20 backdrop-blur-md">
                       342 tokens
                     </div>
@@ -124,7 +123,7 @@ const AgentDetails: React.FC = () => {
                 </div>
               </div>
             </section>
-            
+
             <div className="flex justify-end pt-4 mb-10">
               <button className="flex items-center gap-2 bg-primary text-background-dark font-black py-4 px-10 rounded-xl hover:bg-green-400 transition-all shadow-xl shadow-primary/10 hover:scale-[1.02] active:scale-95">
                 <span className="material-symbols-outlined text-[22px]">save</span>
@@ -150,11 +149,10 @@ const AgentDetails: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                 {models.map((model) => (
-                  <div 
-                    key={model.id} 
-                    className={`relative p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col gap-4 ${
-                      model.active ? 'border-primary bg-primary/5 shadow-[0_0_20px_-10px_rgba(19,236,91,0.2)]' : 'border-surface-border hover:border-white/20'
-                    }`}
+                  <div
+                    key={model.id}
+                    className={`relative p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col gap-4 ${model.active ? 'border-primary bg-primary/5 shadow-[0_0_20px_-10px_rgba(19,236,91,0.2)]' : 'border-surface-border hover:border-white/20'
+                      }`}
                   >
                     <div className="flex justify-between items-start">
                       <div className={`p-2 rounded-lg ${model.active ? 'bg-primary text-background-dark' : 'bg-white/5 text-white'}`}>
@@ -173,9 +171,9 @@ const AgentDetails: React.FC = () => {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 border-t border-white/5 pt-8">
                 <div className="flex flex-col gap-4">
                   <label className="text-xs font-black text-text-secondary uppercase tracking-widest">Temperatura ({temp.toFixed(1)})</label>
-                  <input 
-                    className="w-full h-1.5 bg-surface-border rounded-lg appearance-none cursor-pointer accent-primary" 
-                    max="1" min="0" step="0.1" type="range" 
+                  <input
+                    className="w-full h-1.5 bg-surface-border rounded-lg appearance-none cursor-pointer accent-primary"
+                    max="1" min="0" step="0.1" type="range"
                     value={temp}
                     onChange={(e) => setTemp(parseFloat(e.target.value))}
                   />
@@ -189,12 +187,12 @@ const AgentDetails: React.FC = () => {
                   <label className="text-xs font-black text-text-secondary uppercase tracking-widest">OpenAI API Key</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary material-symbols-outlined text-[20px]">key</span>
-                    <input className="w-full bg-[#0b140e] border border-surface-border rounded-xl px-10 py-3 text-white focus:border-primary outline-none text-sm" type="password" value="sk-proj-****************************" readOnly/>
+                    <input className="w-full bg-[#0b140e] border border-surface-border rounded-xl px-10 py-3 text-white focus:border-primary outline-none text-sm" type="password" value="sk-proj-****************************" readOnly />
                   </div>
                 </div>
               </div>
             </section>
-            
+
             <div className="flex justify-end pt-4 mb-10">
               <button className="flex items-center gap-2 bg-primary text-background-dark font-black py-4 px-10 rounded-xl hover:bg-green-400 transition-all shadow-xl shadow-primary/10 hover:scale-[1.02] active:scale-95">
                 <span className="material-symbols-outlined text-[22px]">save</span>
@@ -218,7 +216,7 @@ const AgentDetails: React.FC = () => {
                   Monitorando Live
                 </div>
               </div>
-              
+
               <div className="flex flex-col divide-y divide-white/5 font-mono text-xs">
                 {[
                   { time: '14:55:02', user: 'Roberto M.', event: 'QUALIFICADO', detail: 'Consumo: R$ 850,00 | Tipo: Residencial', color: 'text-primary' },
@@ -235,7 +233,7 @@ const AgentDetails: React.FC = () => {
                   </div>
                 ))}
               </div>
-              
+
               <div className="p-4 bg-white/5 flex justify-center">
                 <button className="text-xs font-bold text-text-secondary hover:text-primary transition-colors flex items-center gap-2">
                   Ver histórico completo no Monitoramento
