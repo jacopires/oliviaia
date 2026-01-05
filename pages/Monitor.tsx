@@ -215,10 +215,10 @@ const Monitor: React.FC = () => {
     showToast('🔄 Sincronizando via servidor...', 'info');
 
     try {
-      const { data: integrations, error: integrationsError } = await supabase
-        .from('integrations_whatsapp')
-        .select('instance_id')
-        .limit(1);
+      // Chama Edge Function diretamente (credenciais no servidor)
+      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
+        body: { action: 'sync-chats' }
+      });
 
       if (integrationsError) throw integrationsError;
 
@@ -229,9 +229,8 @@ const Monitor: React.FC = () => {
         return;
       }
 
-      const count = await syncChatsFromEvolution(instanceId);
+      const count = data?.count || 0;
       showToast(`✅ Sincronização concluída! ${count} chats atualizados.`, 'success');
-      fetchChats();
     } catch (err: any) {
       console.error('Erro na sincronização:', err);
 
