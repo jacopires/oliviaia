@@ -212,7 +212,7 @@ const Monitor: React.FC = () => {
 
   const handleSync = async () => {
     setIsSyncing(true);
-    showToast('Sincronizando conversas...', 'info');
+    showToast('🔄 Sincronizando via servidor...', 'info');
 
     try {
       const { data: integrations, error: integrationsError } = await supabase
@@ -238,7 +238,7 @@ const Monitor: React.FC = () => {
       // Tratamento granular de erros
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
         showToast(
-          '❌ Não foi possível conectar à IA. Verifique se a Edge Function "whatsapp-manager" está ativa.',
+          '❌ Não foi possível conectar ao servidor. Verifique se a Edge Function "whatsapp-manager" está ativa.',
           'error'
         );
 
@@ -251,6 +251,11 @@ const Monitor: React.FC = () => {
           setChats(MOCK_CHATS);
           showToast('📊 Modo Demonstração ativado', 'info');
         }
+      } else if (err.message?.includes('FunctionsRelayError') || err.message?.includes('FunctionsFetchError')) {
+        showToast(
+          '⚠️ Edge Function não configurada. Configure a integração WhatsApp primeiro.',
+          'warning'
+        );
       } else {
         showToast(`Erro ao sincronizar: ${err.message}`, 'error');
       }
@@ -426,8 +431,8 @@ const Monitor: React.FC = () => {
                 <motion.div
                   key={chat.id}
                   className={`p-4 rounded-xl cursor-pointer transition-all mb-2 ${activeChatId === chat.id
-                      ? 'bg-gradient-to-r from-primary/20 to-transparent border-l-4 border-primary shadow-glow-green'
-                      : 'hover:bg-gradient-to-r hover:from-white/5 hover:to-transparent'
+                    ? 'bg-gradient-to-r from-primary/20 to-transparent border-l-4 border-primary shadow-glow-green'
+                    : 'hover:bg-gradient-to-r hover:from-white/5 hover:to-transparent'
                     }`}
                   onClick={() => setActiveChatId(chat.id)}
                   initial={{ opacity: 0, y: 20 }}
@@ -560,8 +565,8 @@ const Monitor: React.FC = () => {
                           key={label}
                           onClick={() => toggleLabel(label)}
                           className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeChat.labels?.includes(label)
-                              ? 'bg-primary/20 text-primary'
-                              : 'hover:bg-white/5 text-text-secondary'
+                            ? 'bg-primary/20 text-primary'
+                            : 'hover:bg-white/5 text-text-secondary'
                             }`}
                         >
                           {label}
@@ -597,8 +602,8 @@ const Monitor: React.FC = () => {
                   >
                     <div
                       className={`max-w-[70%] px-4 py-3 rounded-2xl ${msg.sender === 'user'
-                          ? 'bg-white/5 text-text-primary rounded-bl-sm'
-                          : 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-br-sm shadow-glow-green'
+                        ? 'bg-white/5 text-text-primary rounded-bl-sm'
+                        : 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-br-sm shadow-glow-green'
                         }`}
                     >
                       {msg.media_url && (
