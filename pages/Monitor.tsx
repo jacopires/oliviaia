@@ -222,12 +222,8 @@ const Monitor: React.FC = () => {
 
       if (error) throw error;
 
-      const instanceId = integrations?.[0]?.instance_id;
-
-      if (!instanceId) {
-        showToast('⚠️ Nenhuma instância do WhatsApp conectada. Vá em Integrações para conectar.', 'error');
-        return;
-      }
+      // Atualiza lista de chats após sincronização
+      await fetchChats();
 
       const count = data?.count || 0;
       showToast(`✅ Sincronização concluída! ${count} chats atualizados.`, 'success');
