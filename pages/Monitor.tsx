@@ -4,6 +4,9 @@ import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 import { syncChatsFromEvolution, updateChatProfilePicture } from '../services/evolutionService';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { ChatListItem } from '../components/ui/ChatListItem';
+import { MessageBubble } from '../components/ui/MessageBubble';
+import { GlassCard } from '../components/ui/GlassCard';
 
 interface Message {
   id: string;
@@ -252,27 +255,15 @@ const Monitor: React.FC = () => {
           <input className="w-full bg-slate-100 dark:bg-[#1e242e] border-none rounded-lg px-4 py-2 text-slate-800 dark:text-white text-sm outline-none" placeholder="Buscar conversa..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {filteredChats.map(chat => (
-            <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`p-4 border-b border-slate-100 dark:border-[#282e39] cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1c222b] transition-colors ${activeChatId === chat.id ? 'bg-slate-50 dark:bg-[#1c222b]' : ''}`}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-500 overflow-hidden shrink-0 flex items-center justify-center">
-                  {chat.avatar ? <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" /> : <span className="text-white font-medium text-sm">{chat.name?.substring(0, 2).toUpperCase()}</span>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-medium text-slate-800 dark:text-white truncate">{chat.name}</h3>
-                    <span className="text-xs text-slate-400">{new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                  <div className="flex gap-1 flex-wrap mb-1">
-                    {chat.labels?.map(l => (
-                      <span key={l} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">{l}</span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 capitalize truncate">{chat.status || 'Ativo'}</p>
-                </div>
-              </div>
-            </div>
+            <ChatListItem
+              key={chat.id}
+              chat={chat}
+              isActive={activeChatId === chat.id}
+              onClick={() => setActiveChatId(chat.id)}
+              hasNewMessage={false}
+            />
           ))}
         </div>
       </aside>
