@@ -102,7 +102,6 @@ const Monitor: React.FC = () => {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isHumanMode, setIsHumanMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showLabelMenu, setShowLabelMenu] = useState(false);
@@ -360,16 +359,16 @@ const Monitor: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden h-screen p-4 gap-4">
+    <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)] p-4 gap-4">
       {/* SIDEBAR - Lista de Chats */}
       <motion.aside
-        className="w-[380px] shrink-0 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
+        className="w-[380px] shrink-0 bg-black/20 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
         initial={{ x: -20, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
       >
         {/* Header */}
-        <div className="p-6 border-b border-white/5">
+        <div className="p-6 border-b border-white/5 shrink-0">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold text-text-primary">Conversas</h1>
             <motion.button
@@ -398,7 +397,7 @@ const Monitor: React.FC = () => {
           </div>
         </div>
 
-        {/* Chat List */}
+        {/* Chat List - SCROLLABLE */}
         <div className="flex-1 overflow-y-auto p-2">
           {isLoading ? (
             // Skeleton Loading
@@ -503,17 +502,17 @@ const Monitor: React.FC = () => {
         </div>
       </motion.aside>
 
-      {/* CHAT AREA */}
+      {/* CHAT AREA - LAYOUT FIXO */}
       <motion.div
-        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col"
+        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col h-full"
         initial={{ x: 20, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.1 }}
       >
         {activeChat ? (
           <>
-            {/* Chat Header */}
-            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+            {/* Chat Header - FIXO */}
+            <div className="p-6 border-b border-white/5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4">
                 {/* Avatar */}
                 <div className="relative group">
@@ -591,7 +590,7 @@ const Monitor: React.FC = () => {
               </div>
             </div>
 
-            {/* Messages Area */}
+            {/* Messages Area - SCROLLABLE (flex-1) */}
             <div
               ref={chatContainerRef}
               className="flex-1 overflow-y-auto p-6 space-y-4"
@@ -601,9 +600,10 @@ const Monitor: React.FC = () => {
                   <motion.div
                     key={msg.id}
                     className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.3 }}
                   >
                     <div
                       className={`max-w-[70%] px-4 py-3 rounded-2xl ${msg.sender === 'user'
@@ -637,9 +637,14 @@ const Monitor: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {/* Input Area - Dynamic Island Style */}
-            <div className="p-6">
-              <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 p-2 flex items-center gap-2">
+            {/* Input Area - FIXO NO RODAPÉ (Dynamic Island) */}
+            <div className="shrink-0 p-6 z-50">
+              <motion.div
+                className="max-w-4xl mx-auto bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-2 flex items-center gap-2 shadow-glass"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3 }}
+              >
                 <motion.button
                   className="p-2 rounded-xl hover:bg-white/5 transition-all"
                   whileHover={{ scale: 1.05 }}
@@ -674,7 +679,7 @@ const Monitor: React.FC = () => {
                 >
                   <Send size={18} />
                 </motion.button>
-              </div>
+              </motion.div>
             </div>
           </>
         ) : (
