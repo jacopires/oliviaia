@@ -220,7 +220,7 @@ const Monitor: React.FC = () => {
         body: { action: 'sync-chats' }
       });
 
-      if (integrationsError) throw integrationsError;
+      if (error) throw error;
 
       const instanceId = integrations?.[0]?.instance_id;
 
