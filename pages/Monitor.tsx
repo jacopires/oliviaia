@@ -1,325 +1,275 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { sendMessageToGemini } from '../services/geminiService';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
+import { syncChatsFromEvolution, updateChatProfilePicture } from '../services/evolutionService';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 
 interface Message {
   id: string;
+  chat_id: string;
   sender: 'ai' | 'user' | 'agent';
   text: string;
-  time: string;
+  media_url?: string;
+  media_type?: 'image' | 'video' | 'audio' | 'document';
+  created_at: string;
 }
 
 interface ChatSession {
   id: string;
+  whatsapp_id: string;
   name: string;
-  avatar: string;
+  avatar_url?: string;
+  avatar?: string;
   status: string;
   score: string;
-  color: string;
-  messages: Message[];
-  profile_pic?: string;
+  last_message_at: string;
+  labels?: string[];
+  is_typing?: boolean; // New: Typing status from realtime?
 }
 
+const AVAILABLE_LABELS = ['Lead', 'Venda', 'Suporte', 'Urgente', 'Frio'];
+
 const Monitor: React.FC = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeChatId, setActiveChatId] = useState('1');
-  const [isHumanMode, setIsHumanMode] = useState(false);
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [activeMessages, setActiveMessages] = useState<Message[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isHumanMode, setIsHumanMode] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showLabelMenu, setShowLabelMenu] = useState(false);
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
+
+  // Audio Recorder Ref
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const { showToast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  /* State Management */
-  const [chats, setChats] = useState<ChatSession[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { showToast } = useToast();
-
-  // Computed Active Chat
-  const activeChat = chats.find(c => c.id === activeChatId);
-
-  // 1. Fetch Chats (Leads)
+  // Realtime Subscription
   useEffect(() => {
-    fetchChats();
-    repairWebhook(); // Auto-repair on load
-
-    // Realtime subscription for new leads
-    const subscription = supabase
-      .channel('public:leads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+    const chatSubscription = supabase
+      .channel('public:chats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
         fetchChats();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(subscription); }
-  }, []);
-
-  const repairWebhook = async () => {
-    try {
-      console.log("Repairing webhook...");
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'repair-webhook' }
-      });
-      if (data?.log) console.log("Repair Log:", data.log);
-    } catch (e) {
-      console.error("Repair failed", e);
-    }
-  };
-
-  const fetchChats = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log("Current User:", user?.id);
-
-    const { data, error } = await supabase
-      .from('leads')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (error) {
-      console.error("Fetch error:", error);
-      showToast('Erro ao buscar chats: ' + error.message, 'error');
-      return;
-    }
-
-    if (data) {
-      console.log("Fetched chats:", data.length);
-      // DEBUG TOAST
-      // showToast(`Debug: ${data.length} chats encontrados. User: ${user?.id?.slice(0,5)}...`, 'info');
-
-      const mappedChats = data.map(d => ({
-        id: d.session_id,
-        name: d.name || d.session_id,
-        avatar: (d.name?.[0] || d.session_id?.[0] || '?').toUpperCase(),
-        status: d.status_cliente || 'Novo',
-        score: 'Neutro',
-        color: typeToColor(d.status_cliente),
-        messages: [],
-        profile_pic: d.profile_pic
-      }));
-      setChats(mappedChats);
-
-      // Auto-select first chat if none selected or invalid
-      if (mappedChats.length > 0) {
-        if (!activeChatId || activeChatId === '1' || !mappedChats.find(c => c.id === activeChatId)) {
-          setActiveChatId(mappedChats[0].id);
+    const messageSubscription = supabase
+      .channel('public:messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        if (activeChatId && payload.new.chat_id === activeChatId) {
+          setActiveMessages((prev) => [...prev, payload.new as Message]);
         }
-      }
-    }
-    setLoading(false);
-  }
-
-  const typeToColor = (status: string) => {
-    if (status === 'CONCLUIDO') return 'bg-emerald-500/10 text-emerald-500';
-    if (status === 'NEGOCIACAO') return 'bg-amber-500/10 text-amber-500';
-    return 'bg-white/10 text-white';
-  };
-
-  // 2. Fetch Messages for Active Chat
-  useEffect(() => {
-    if (!activeChatId) return;
-    fetchMessages(activeChatId);
-
-    const subscription = supabase
-      .channel(`chat:${activeChatId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages',
-        filter: `session_id=eq.${activeChatId}`
-      }, (payload) => {
-        const newMsg = payload.new;
-        setMessages(prev => [...prev, {
-          id: newMsg.id,
-          sender: newMsg.sender,
-          text: newMsg.content,
-          time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
+        fetchChats();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(subscription); }
+    fetchChats();
+
+    return () => {
+      supabase.removeChannel(chatSubscription);
+      supabase.removeChannel(messageSubscription);
+    };
   }, [activeChatId]);
 
-  const fetchMessages = async (sessionId: string) => {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: true });
-
-    if (data) {
-      setMessages(data.map(m => ({
-        id: m.id,
-        sender: m.sender as any,
-        text: m.content,
-        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      })));
-    } else {
-      setMessages([]);
-    }
-  }
-
+  // Auto Scroll
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [messages, isTyping]);
+  }, [activeMessages]);
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim()) return;
+  const fetchChats = async () => {
+    const { data } = await supabase
+      .from('chats')
+      .select('*')
+      .ilike('whatsapp_id', '%@s.whatsapp.net')
+      .order('last_message_at', { ascending: false });
 
-    const messageText = inputText;
-    // Optimistic UI Update
-    const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const tempId = Date.now().toString();
-    const newMessage: Message = {
-      id: tempId,
-      sender: 'agent', // Always agent when typing manually
-      text: messageText,
-      time: currentTime
-    };
+    if (data) {
+      const mapped = data.map((d: any) => ({
+        ...d,
+        avatar: d.avatar_url || d.avatar
+      }));
+      setChats(mapped);
 
-    setMessages(prev => [...prev, newMessage]);
-    setInputText('');
-
-    // Send to Backend
-    try {
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: {
-          action: 'send-message',
-          remoteJid: activeChatId,
-          message: messageText
-        }
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      // If successful, we could replace the temp ID or just let the realtime subscription fill it in
-      // For now, optimistic update is sufficient.
-
-    } catch (err: any) {
-      console.error("Send failed:", err);
-      showToast('Falha ao enviar mensagem: ' + err.message, 'error');
-      // Rollback UI if needed, but keeping it simple for now
+      if (!activeChatId && mapped.length > 0) setActiveChatId(mapped[0].id);
     }
   };
 
-  const toggleHumanMode = () => {
-    setIsHumanMode(!isHumanMode);
+  const fetchMessages = async (chatId: string) => {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (data) setActiveMessages(data as any);
   };
 
-  // Utility to format phone numbers (remove @s.whatsapp.net and mask)
-  const formatPhoneNumber = (jid: string) => {
-    if (!jid) return '';
-    const number = jid.split('@')[0];
-    // Simple Brazil mask logic (can be expanded)
-    if (number.length === 12 && number.startsWith('55')) {
-      const ddd = number.substring(2, 4);
-      const part1 = number.substring(4, 9);
-      const part2 = number.substring(9);
-      return `(${ddd}) ${part1}-${part2}`;
-    }
-    if (number.length === 13 && number.startsWith('55')) {
-      const ddd = number.substring(2, 4);
-      const part1 = number.substring(4, 9);
-      const part2 = number.substring(9);
-      return `(${ddd}) ${part1}-${part2}`;
-    }
-    return number;
-  };
-
-  const filteredChats = chats.filter(chat =>
-    chat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    chat.id.includes(searchQuery)
-  );
+  useEffect(() => {
+    if (activeChatId) fetchMessages(activeChatId);
+    setShowLabelMenu(false); // Close menus on chat switch
+    setShowEmojiPicker(false);
+  }, [activeChatId]);
 
   const handleSync = async () => {
-    const toastId = showToast('Sincronizando chats e mensagens...', 'info');
+    setIsSyncing(true);
+    showToast('Sincronizando conversas...', 'info');
     try {
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'sync-chats' }
-      });
+      const { data: integrations } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1);
+      const instanceId = integrations?.[0]?.instance_id;
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (!instanceId) {
+        showToast('⚠️ Nenhuma instância do WhatsApp conectada. Vá em Integrações para conectar.', 'error');
+        return;
+      }
 
-      showToast(`Sincronização concluída! ${data.count || 0} chats e ${data.msgCount || 0} mensagens.`, 'success');
+      const count = await syncChatsFromEvolution(instanceId);
+      showToast(`Sincronização concluída! ${count} chats atualizados.`, 'success');
       fetchChats();
     } catch (err: any) {
       console.error(err);
       showToast('Erro ao sincronizar: ' + err.message, 'error');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileName = `${Date.now()}-${file.name}`;
+    const { error } = await supabase.storage.from('chat-media').upload(fileName, file);
+    if (error) { showToast("Erro upload", "error"); return; }
+
+    const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) return;
+
+    let type = 'document';
+    if (file.type.startsWith('image/')) type = 'image';
+    else if (file.type.startsWith('video/')) type = 'video';
+    else if (file.type.startsWith('audio/')) type = 'audio';
+
+    await supabase.functions.invoke('whatsapp-manager', {
+      body: { action: 'send-media', remoteJid: currentChat.whatsapp_id, mediaUrl: publicUrl, mediaType: type, caption: inputText }
+    });
+    setInputText('');
+    showToast("Mídia enviada!", "success");
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mediaRecorderRef.current.ondataavailable = (event) => audioChunksRef.current.push(event.data);
+      mediaRecorderRef.current.onstop = sendAudioRecording;
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (e) { showToast("Erro microfone", "error"); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); }
+  };
+
+  const sendAudioRecording = async () => {
+    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+    const fileName = `audio-${Date.now()}.mp3`;
+    const { error } = await supabase.storage.from('chat-media').upload(fileName, audioBlob);
+    if (error) { showToast("Erro upload áudio", "error"); return; }
+    const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) return;
+
+    await supabase.functions.invoke('whatsapp-manager', {
+      body: { action: 'send-audio', remoteJid: currentChat.whatsapp_id, mediaUrl: publicUrl }
+    });
+    showToast("Áudio enviado!", "success");
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || !activeChatId) return;
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) return;
+    const msgText = inputText;
+    setInputText('');
+    const { error } = await supabase.functions.invoke('whatsapp-manager', {
+      body: { action: 'send-message', remoteJid: currentChat.whatsapp_id, message: msgText }
+    });
+    if (error) showToast("Erro ao enviar mensagem", "error");
+  };
+
+  const handleEncerrar = async () => {
+    if (!activeChatId) return;
+    await supabase.from('chats').update({ status: 'Encerrado', created_at: new Date() }).eq('id', activeChatId);
+    showToast("Atendimento encerrado", "info");
+  };
+
+  const toggleLabel = async (label: string) => {
+    if (!activeChatId) return;
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat) return;
+    const currentLabels = currentChat.labels || [];
+    const newLabels = currentLabels.includes(label)
+      ? currentLabels.filter(l => l !== label)
+      : [...currentLabels, label];
+
+    await supabase.from('chats').update({ labels: newLabels }).eq('id', activeChatId);
+  };
+
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setInputText((prev) => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
+  const activeChat = chats.find(c => c.id === activeChatId);
+  const filteredChats = chats.filter(chat => chat.name?.toLowerCase().includes(searchQuery.toLowerCase()));
+
   return (
     <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)]">
-      {/* Sidebar de Conversas */}
-      <aside className="hidden md:flex flex-col w-[380px] lg:w-[400px] border-r border-slate-200 dark:border-[#282e39] bg-white dark:bg-[#111318] shrink-0 z-30">
-        <div className="p-6 border-b border-slate-200 dark:border-[#282e39]">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-xl font-bold tracking-tight text-white font-display">Monitoramento</h1>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleSync}
-                className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:text-primary transition-all text-xs font-bold text-gray-400 flex items-center gap-1"
-                title="Sincronizar Conversas Antigas"
-              >
-                <span className="material-symbols-outlined text-[16px]">sync</span>
-              </button>
-              <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20">
-                <span className="size-1.5 rounded-full bg-primary animate-pulse"></span>
-                <span className="text-[10px] font-black text-primary uppercase">Live</span>
-              </div>
-            </div>
-          </div>
 
-          <div className="relative group">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-[20px]">search</span>
-            <input
-              className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-100 dark:bg-[#1e242e] border border-transparent focus:border-primary/50 text-sm text-white outline-none transition-all shadow-inner"
-              placeholder="Pesquisar leads..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+      {/* SIDEBAR */}
+      <aside className="hidden md:flex flex-col w-[350px] border-r border-slate-200 dark:border-[#282e39] bg-white dark:bg-[#111318] shrink-0">
+        <div className="p-4 border-b border-slate-200 dark:border-[#282e39]">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-lg font-bold text-slate-800 dark:text-white">Monitoramento Ao Vivo</h1>
+            <button onClick={handleSync} disabled={isSyncing} className="text-xs bg-slate-100 dark:bg-white/5 hover:bg-slate-200 text-slate-600 dark:text-white px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 flex items-center gap-2">
+              <span className={`material-symbols-outlined text-[14px] ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
+              {isSyncing ? '...' : 'Sync'}
+            </button>
           </div>
+          <input className="w-full bg-slate-100 dark:bg-[#1e242e] border-none rounded-lg px-4 py-2 text-slate-800 dark:text-white text-sm outline-none" placeholder="Buscar conversa..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-          {filteredChats.map((chat) => (
-            <div
-              key={chat.id}
-              onClick={() => setActiveChatId(chat.id)}
-              className={`flex gap-3 p-4 rounded-2xl border transition-all cursor-pointer relative group ${activeChatId === chat.id
-                ? 'bg-primary/5 border-primary/30 shadow-lg'
-                : 'border-transparent hover:bg-white/5'
-                }`}
-            >
-              <div className="relative shrink-0">
-                {chat.profile_pic ? (
-                  <img src={chat.profile_pic} className="size-12 rounded-full object-cover border border-white/10 group-hover:border-primary/50 transition-all" alt="Avatar" />
-                ) : (
-                  <div className="size-12 rounded-full bg-slate-700 flex items-center justify-center font-bold text-white text-sm border border-white/10 group-hover:border-primary/50 transition-all">
-                    {chat.avatar}
-                  </div>
-                )}
-                {chat.status === 'Novo' && <div className="absolute -bottom-1 -right-1 size-4 bg-primary rounded-full border-2 border-[#111318]"></div>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start mb-1">
-                  <h3 className="text-sm font-bold truncate text-white tracking-tight">
-                    {chat.name.includes('@') ? formatPhoneNumber(chat.name) : chat.name}
-                  </h3>
-                  <span className="text-[10px] text-text-secondary font-mono opacity-50">Now</span>
+        <div className="flex-1 overflow-y-auto">
+          {filteredChats.map(chat => (
+            <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`p-4 border-b border-slate-100 dark:border-[#282e39] cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1c222b] transition-colors ${activeChatId === chat.id ? 'bg-slate-50 dark:bg-[#1c222b]' : ''}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-indigo-500 overflow-hidden shrink-0 flex items-center justify-center">
+                  {chat.avatar ? <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" /> : <span className="text-white font-medium text-sm">{chat.name?.substring(0, 2).toUpperCase()}</span>}
                 </div>
-                <p className="text-xs text-text-secondary truncate leading-relaxed opacity-60 font-mono">
-                  {formatPhoneNumber(chat.id)}
-                </p>
-                <div className="mt-3 flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${chat.color}`}>
-                    {chat.status}
-                  </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-medium text-slate-800 dark:text-white truncate">{chat.name}</h3>
+                    <span className="text-xs text-slate-400">{new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="flex gap-1 flex-wrap mb-1">
+                    {chat.labels?.map(l => (
+                      <span key={l} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">{l}</span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 capitalize truncate">{chat.status || 'Ativo'}</p>
                 </div>
               </div>
             </div>
@@ -327,148 +277,162 @@ const Monitor: React.FC = () => {
         </div>
       </aside>
 
-      {/* Chat Area Container */}
-      <main className="flex-1 flex flex-col bg-[#0b0e14] h-full overflow-hidden relative">
-
-        {/* FIXED TOP LEAD INFO */}
-        <header className="shrink-0 h-20 border-b border-white/5 bg-[#111318]/90 backdrop-blur-xl flex items-center justify-between px-8 z-40 shadow-2xl">
-          <div className="flex items-center gap-5">
-            <div className="relative">
-              {activeChat?.profile_pic ? (
-                <img src={activeChat.profile_pic} className="size-12 rounded-2xl object-cover shadow-[0_8px_16px_rgba(0,0,0,0.4)] border border-white/10" alt="Active Avatar" />
-              ) : (
-                <div className="size-12 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-[0_8px_16px_rgba(0,0,0,0.4)] border border-white/10">
-                  {activeChat?.avatar || '?'}
-                </div>
-              )}
-              <div className="absolute -bottom-1 -right-1 size-4 bg-emerald-500 rounded-full border-2 border-[#111318] shadow-lg"></div>
-            </div>
-
-            <div className="flex flex-col gap-1">
+      {/* CHAT AREA */}
+      <main className="flex-1 flex flex-col bg-slate-50 dark:bg-[#0b0c10] relative">
+        {!activeChatId ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400">Selecione um chat para monitorar</div>
+        ) : (
+          <>
+            {/* HEADER */}
+            <div className="h-16 px-6 border-b border-slate-200 dark:border-[#282e39] flex items-center justify-between bg-white dark:bg-[#111318]">
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-bold text-white tracking-tight font-display">
-                  {activeChat ? (activeChat.name.includes('@') ? formatPhoneNumber(activeChat.name) : activeChat.name) : 'Selecione um chat'}
-                </h2>
-
-                <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
-                  <span className="text-[10px] text-text-secondary font-black uppercase tracking-widest">Score:</span>
-                  <span className="text-[10px] text-primary font-black uppercase tracking-widest">{activeChat?.score || '-'}</span>
+                <div className="relative group">
+                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-700 overflow-hidden flex items-center justify-center">
+                    {activeChat?.avatar ? <img src={activeChat.avatar} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-white font-bold">{activeChat?.name?.substring(0, 2).toUpperCase()}</span>}
+                  </div>
+                  {/* Botão para atualizar foto de perfil */}
+                  {!activeChat?.avatar && (
+                    <button
+                      onClick={async () => {
+                        if (!activeChat || isLoadingPhoto) return;
+                        setIsLoadingPhoto(true);
+                        try {
+                          const { data: integrations } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1);
+                          const instanceId = integrations?.[0]?.instance_id;
+                          if (instanceId) {
+                            const success = await updateChatProfilePicture(instanceId, activeChat.id, activeChat.whatsapp_id);
+                            if (success) {
+                              showToast('Foto de perfil atualizada!', 'success');
+                              fetchChats();
+                            } else {
+                              showToast('Foto de perfil não disponível', 'info');
+                            }
+                          }
+                        } catch (err) {
+                          showToast('Erro ao buscar foto', 'error');
+                        } finally {
+                          setIsLoadingPhoto(false);
+                        }
+                      }}
+                      disabled={isLoadingPhoto}
+                      className="absolute -bottom-1 -right-1 w-5 h-5 bg-indigo-500 hover:bg-indigo-600 rounded-full flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100"
+                      title="Buscar foto do WhatsApp"
+                    >
+                      <span className={`material-symbols-outlined text-white text-[12px] ${isLoadingPhoto ? 'animate-spin' : ''}`}>
+                        {isLoadingPhoto ? 'sync' : 'photo_camera'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-800 dark:text-white">{activeChat?.name}</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{activeChat?.whatsapp_id}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${activeChat?.color || 'text-white'}`}>
-                  {activeChat?.status || 'Unknown'}
-                </span>
-                <span className="text-white/20 text-xs">|</span>
-                <span className="text-[10px] text-text-secondary font-bold uppercase tracking-widest flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-primary animate-pulse"></span>
-                  Conexão Via WhatsApp
-                </span>
+
+              <div className="flex items-center gap-3 relative">
+                {/* LABELS BUTTON */}
+                <div className="relative">
+                  <button onClick={() => setShowLabelMenu(!showLabelMenu)} className="p-2 text-slate-400 hover:text-indigo-500 rounded-full hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+                    <span className="material-symbols-outlined text-[20px]">label</span>
+                  </button>
+                  {showLabelMenu && (
+                    <div className="absolute right-0 top-10 w-48 bg-white dark:bg-[#1e242e] shadow-xl border border-slate-200 dark:border-white/10 rounded-xl z-20 p-2">
+                      <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 px-2 py-1 mb-1">Etiquetas</h4>
+                      {AVAILABLE_LABELS.map(label => (
+                        <button
+                          key={label}
+                          onClick={() => toggleLabel(label)}
+                          className={`w-full text-left px-3 py-2 text-sm rounded-lg flex justify-between items-center hover:bg-slate-100 dark:hover:bg-white/5 ${activeChat?.labels?.includes(label) ? 'text-indigo-500 font-medium' : 'text-slate-700 dark:text-slate-300'}`}
+                        >
+                          {label}
+                          {activeChat?.labels?.includes(label) && <span className="material-symbols-outlined text-[16px]">check</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button onClick={handleEncerrar} className="px-3 py-1 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg">Encerrar</button>
+
+                <div className={`px-3 py-1 rounded-full text-xs font-medium ${isHumanMode ? 'bg-indigo-500/10 text-indigo-500' : 'bg-green-500/10 text-green-500'}`}>
+                  {isHumanMode ? 'HUMANO' : 'IA'}
+                </div>
+
+                <button onClick={() => setIsHumanMode(!isHumanMode)} className={`w-12 h-6 rounded-full p-1 transition-colors ${isHumanMode ? 'bg-indigo-500' : 'bg-green-500'}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isHumanMode ? 'translate-x-6' : 'translate-x-0'}`} />
+                </button>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border transition-all ${isHumanMode ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-white/5 border-white/10 text-text-secondary'}`}>
-              <span className="material-symbols-outlined text-[20px]">{isHumanMode ? 'person_search' : 'precision_manufacturing'}</span>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Status de Controle</span>
-                <span className="text-[11px] font-bold mt-1">{isHumanMode ? 'OPERADOR HUMANO' : 'SISTEMA AUTÔNOMO'}</span>
-              </div>
+            {/* MESSAGES */}
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+              {activeMessages.map(msg => {
+                const isAgent = msg.sender === 'agent' || msg.sender === 'ai';
+                const renderContent = () => {
+                  if (msg.media_type === 'image') return <img src={msg.media_url} alt="Media" className="max-w-[200px] rounded-lg mb-2" />;
+                  if (msg.media_type === 'audio') return <audio controls src={msg.media_url} className="mb-2 w-[240px]" />;
+                  if (msg.media_type === 'video') return <video controls src={msg.media_url} className="max-w-[200px] rounded-lg mb-2" />;
+                  return null;
+                };
+                return (
+                  <div key={msg.id} className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${isAgent ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white dark:bg-[#1e242e] text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-100 dark:border-white/5'}`}>
+                      {renderContent()}
+                      {msg.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>}
+                      <div className={`text-[10px] mt-2 flex items-center justify-end gap-1 ${isAgent ? 'text-indigo-200' : 'text-slate-400'}`}>
+                        {msg.sender === 'agent' && <span className="uppercase">Você</span>}
+                        {msg.sender === 'ai' && <span className="uppercase">IA</span>}
+                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <button
-              onClick={toggleHumanMode}
-              className={`h-12 px-6 rounded-xl font-black text-xs transition-all flex items-center gap-2 group shadow-xl ${isHumanMode
-                ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
-                : 'bg-primary text-[#111318] hover:bg-green-400 shadow-primary/20 hover:scale-105'
-                }`}
-            >
-              <span className="material-symbols-outlined text-[22px] transition-transform group-hover:scale-110">
-                {isHumanMode ? 'cancel' : 'pan_tool'}
-              </span>
-              {isHumanMode ? 'DEVOLVER PARA IA' : 'ASSUMIR CONVERSA'}
-            </button>
-          </div>
-        </header>
-
-        {/* EXPANSIVE MESSAGES AREA */}
-        <div
-          ref={chatContainerRef}
-          className="flex-1 overflow-y-auto px-8 md:px-12 py-10 flex flex-col gap-8 custom-scrollbar bg-[radial-gradient(circle_at_center,_#121814_0%,_#0b0e14_100%)] scroll-smooth"
-        >
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-start' : 'justify-end'} gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-              {m.sender === 'user' && (
-                <div className="size-10 rounded-xl bg-slate-800 shrink-0 flex items-center justify-center font-bold text-white text-xs border border-white/10 self-end mb-4 shadow-lg">
-                  {activeChat?.avatar || 'CLI'}
+            {/* INPUT */}
+            <div className="p-4 bg-white dark:bg-[#111318] border-t border-slate-200 dark:border-[#282e39] relative">
+              {/* EMOJI PICKER POPUP */}
+              {showEmojiPicker && (
+                <div className="absolute bottom-20 left-4 z-20 shadow-xl rounded-xl overflow-hidden">
+                  <EmojiPicker onEmojiClick={onEmojiClick} theme="auto" width={300} height={400} />
                 </div>
               )}
 
-              <div className={`max-w-[70%] flex flex-col ${m.sender === 'user' ? 'items-start' : 'items-end'}`}>
-                <div className={`px-6 py-4 rounded-3xl text-[15px] leading-relaxed shadow-2xl relative transition-all hover:scale-[1.01] ${m.sender === 'user'
-                  ? 'bg-[#1e242e] text-white rounded-bl-none border border-white/5'
-                  : m.sender === 'agent'
-                    ? 'bg-primary text-[#102216] font-bold rounded-br-none shadow-primary/10'
-                    : 'bg-white/5 border border-white/10 text-white rounded-br-none backdrop-blur-md'
-                  }`}>
-                  {m.text}
+              <div className="flex gap-2 max-w-4xl mx-auto items-end">
+                <div className="flex gap-1 pb-2">
+                  <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="p-2 text-slate-400 hover:text-yellow-500 transition-colors rounded-full hover:bg-slate-100">
+                    <span className="material-symbols-outlined">sentiment_satisfied</span>
+                  </button>
+                  <label className="p-2 text-slate-400 hover:text-indigo-500 cursor-pointer transition-colors rounded-full hover:bg-slate-100">
+                    <span className="material-symbols-outlined">attach_file</span>
+                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,video/*,audio/*" />
+                  </label>
+                  <button onClick={isRecording ? stopRecording : startRecording} className={`p-2 transition-colors rounded-full ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-red-500 hover:bg-slate-100'}`}>
+                    <span className="material-symbols-outlined">{isRecording ? 'stop' : 'mic'}</span>
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 mt-2 px-2 opacity-40">
-                  <span className="text-[10px] text-text-secondary font-mono">{m.time}</span>
-                  {m.sender !== 'user' && <span className="material-symbols-outlined text-[12px] text-primary">done_all</span>}
-                </div>
+
+                <textarea
+                  value={inputText}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Digite sua mensagem..."
+                  className="flex-1 bg-slate-100 dark:bg-[#1e242e] border-none rounded-2xl px-4 py-3 text-slate-800 dark:text-white outline-none resize-none h-[50px] min-h-[50px] max-h-[120px]"
+                />
+                <button onClick={handleSendMessage} disabled={!inputText.trim()} className="mb-1 w-[46px] h-[42px] bg-green-500 hover:bg-green-600 text-white rounded-xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-green-500/20">
+                  <span className="material-symbols-outlined text-[20px]">send</span>
+                </button>
               </div>
             </div>
-          ))}
-
-          {isTyping && (
-            <div className="flex justify-end gap-3 px-14">
-              <div className="bg-white/5 border border-white/10 px-5 py-3 rounded-2xl rounded-tr-none flex items-center gap-1.5 shadow-inner">
-                <span className="size-1.5 bg-primary rounded-full animate-bounce"></span>
-                <span className="size-1.5 bg-primary rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                <span className="size-1.5 bg-primary rounded-full animate-bounce [animation-delay:0.4s]"></span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* INPUT BAR */}
-        <footer className="shrink-0 p-8 bg-[#111318]/95 backdrop-blur-2xl border-t border-white/5 z-40">
-          <div className="max-w-5xl mx-auto flex gap-4 items-center">
-            <div className="flex items-center gap-1.5">
-              <button className="size-12 rounded-2xl bg-white/5 border border-white/10 text-text-secondary hover:text-white hover:bg-white/10 transition-all flex items-center justify-center group">
-                <span className="material-symbols-outlined transition-transform group-hover:rotate-12">attach_file</span>
-              </button>
-              <button className="size-12 rounded-2xl bg-white/5 border border-white/10 text-text-secondary hover:text-white hover:bg-white/10 transition-all flex items-center justify-center group">
-                <span className="material-symbols-outlined transition-transform group-hover:scale-110">mic</span>
-              </button>
-            </div>
-
-            <div className="flex-1 relative">
-              <input
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                className={`w-full h-14 px-7 rounded-2xl bg-[#1e242e] border border-transparent focus:border-primary/40 text-[15px] text-white outline-none transition-all placeholder:text-text-secondary/30 shadow-[inset_0_4px_10px_rgba(0,0,0,0.3)] ${isHumanMode ? 'ring-2 ring-primary/20' : ''}`}
-                placeholder={isHumanMode ? "Escreva uma resposta para o lead..." : "Comande a IA ou assuma para responder manualmente..."}
-              />
-              {!inputText && (
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none opacity-20">
-                  <span className="text-[10px] font-black border border-white/20 rounded-md px-2 py-1 uppercase tracking-tighter">Enter para enviar</span>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={handleSendMessage}
-              disabled={!inputText.trim()}
-              className="size-14 rounded-2xl bg-primary text-[#111318] flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_10px_20px_-5px_rgba(19,236,91,0.4)] disabled:opacity-40 disabled:scale-100 disabled:shadow-none"
-            >
-              <span className="material-symbols-outlined font-black text-2xl">send</span>
-            </button>
-          </div>
-        </footer>
+          </>
+        )}
       </main>
     </div>
   );
