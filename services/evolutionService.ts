@@ -1,169 +1,145 @@
 import { supabase } from './supabase';
 
-const EVOLUTION_API_URL = import.meta.env.VITE_EVOLUTION_API_URL || 'https://pisomsales-evolution.cloudfy.live';
-const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY || 'K9gxpvHgat4DteNDO8mgazC1lrW2ZKFv';
+// Sanitização Automática: Remove barra no final da URL se houver
+const RAW_URL = import.meta.env.VITE_EVOLUTION_API_URL || '';
+const EVOLUTION_API_URL = RAW_URL.replace(/\/$/, ''); 
+const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY;
 
-// Headers padrão para reutilização
 const getHeaders = () => ({
-    'apikey': EVOLUTION_API_KEY,
-    'Content-Type': 'application/json'
+  'apikey': EVOLUTION_API_KEY,
+  'Content-Type': 'application/json'
 });
 
 /**
- * Envia mensagem de texto simples
+ * Envia mensagem de texto (BLINDADO)
  */
 export const sendTextMessage = async (instanceName: string, remoteJid: string, text: string) => {
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) throw new Error("Credenciais da API ausentes");
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    console.error("❌ ERRO CRÍTICO: Credenciais .env ausentes!");
+    throw new Error("Configuração .env incompleta");
+  }
 
-    // Ajuste do remoteJid se necessário (Evolution geralmente aceita com ou sem sufixo, mas o DTO pede 'number')
-    const body = {
-        number: remoteJid,
-        text: text,
-        delay: 1200,
-        linkPreview: true
-    };
+  // Garante formato do número
+  const cleanJid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+  
+  const url = `${EVOLUTION_API_URL}/message/sendText/${instanceName}`;
+  const body = {
+    number: cleanJid,
+    text: text,
+    delay: 1200,
+    linkPreview: true
+  };
 
-    const response = await fetch(`${EVOLUTION_API_URL}/message/sendText/${instanceName}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(body)
+  console.log(`🚀 [Evolution] Enviando para: ${url}`);
+  console.log(`📦 [Evolution] Payload:`, body);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Erro API: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`❌ [Evolution] Erro API (${response.status}):`, errorText);
+      throw new Error(`Erro API ${response.status}: ${errorText}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    console.log(`✅ [Evolution] Sucesso:`, data);
+    return data;
+  } catch (error: any) {
+    console.error(`❌ [Evolution] Falha na requisição:`, error);
+    throw error;
+  }
 };
 
 /**
- * Busca foto de perfil
+ * Atualiza Perfil (Nome + Foto)
  */
-export const fetchProfilePicture = async (instanceName: string, remoteJid: string): Promise<string | null> => {
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) return null;
+export const updateChatProfile = async (instanceName: string, chatId: string, remoteJid: string) => {
+    if (!EVOLUTION_API_URL) return { success: false };
 
     try {
-        const response = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${instanceName}`, {
+        console.log(`🔄 [Evolution] Buscando perfil para: ${remoteJid}`);
+        
+        // 1. Busca Foto
+        const resPic = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${instanceName}`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({ number: remoteJid })
         });
+        const dataPic = await resPic.json().catch(() => ({}));
+        const avatarUrl = dataPic.profilePictureUrl || dataPic.url || null;
 
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.profilePictureUrl || data.picture || data.url || null;
-    } catch (error) {
-        return null;
-    }
-};
-
-/**
- * Busca nome do contato (PushName)
- */
-export const fetchContactName = async (instanceName: string, remoteJid: string): Promise<string | null> => {
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) return null;
-
-    try {
-        const response = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfile/${instanceName}`, {
+        // 2. Busca Nome
+        const resName = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfile/${instanceName}`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({ number: remoteJid })
         });
+        const dataName = await resName.json().catch(() => ({}));
+        const name = dataName.name || dataName.pushName || dataName.notify || null;
 
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.name || data.pushName || data.notify || data.verifiedName || null;
-    } catch (error) {
-        return null;
-    }
-};
-
-/**
- * Atualiza Foto e tenta recuperar Nome Real
- */
-export const updateChatProfile = async (instanceName: string, chatId: string, remoteJid: string): Promise<{ success: boolean, name?: string, avatar?: string }> => {
-    const [avatarUrl, contactName] = await Promise.all([
-        fetchProfilePicture(instanceName, remoteJid),
-        fetchContactName(instanceName, remoteJid)
-    ]);
-
-    const updates: any = {};
-    if (avatarUrl) updates.avatar_url = avatarUrl;
-
-    // Só atualiza o nome se o usuário não tiver definido um manualmente (opcional, aqui forçamos a atualização para 'resetar')
-    // Ou retornamos para o front decidir
-
-    if (Object.keys(updates).length > 0) {
-        await supabase.from('chats').update(updates).eq('id', chatId);
-    }
-
-    return {
-        success: true,
-        name: contactName || undefined,
-        avatar: avatarUrl || undefined
-    };
-};
-
-// ... (Mantenha o syncChatsFromEvolution igual ao arquivo original)
-export const syncChatsFromEvolution = async (instanceName: string): Promise<number> => {
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-        throw new Error("Configurações da API Evolution ausentes.");
-    }
-
-    try {
-        const response = await fetch(`${EVOLUTION_API_URL}/chat/findChats/${instanceName}`, {
-            method: 'GET',
-            headers: getHeaders()
-        });
-
-        if (!response.ok) {
-            // Fallback para POST se o GET falhar (algumas versões da API)
-            if (response.status === 404 || response.status === 405) {
-                const resPost = await fetch(`${EVOLUTION_API_URL}/chat/findChats/${instanceName}`, {
-                    method: 'POST',
-                    headers: getHeaders(),
-                    body: JSON.stringify({ where: {} })
-                });
-                if (!resPost.ok) throw new Error(`Erro ao buscar chats (POST): ${resPost.statusText}`);
-                return await processChatsResponse(resPost, instanceName);
-            }
-            throw new Error(`Erro na API Evolution: ${response.status} ${response.statusText}`);
+        // 3. Atualiza Banco
+        const updates: any = {};
+        if (avatarUrl) updates.avatar_url = avatarUrl;
+        
+        if (Object.keys(updates).length > 0) {
+            await supabase.from('chats').update(updates).eq('id', chatId);
         }
 
-        return await processChatsResponse(response, instanceName);
-
+        return { success: true, name, avatar: avatarUrl };
     } catch (error) {
-        console.error("Sync Error:", error);
-        throw error;
+        console.error("Erro ao atualizar perfil:", error);
+        return { success: false };
     }
 };
 
-async function processChatsResponse(response: Response, instanceName: string): Promise<number> {
-    const data = await response.json();
-    const chats = Array.isArray(data) ? data : (data.data || data.return || []);
-    if (!Array.isArray(chats)) return 0;
+/**
+ * Sincronização Server-Side
+ */
+export const syncChatsFromEvolution = async (instanceName: string): Promise<number> => {
+    // Mantém compatibilidade com código anterior, mas logs adicionados
+    console.log("🔄 Iniciando sincronização...");
+    const url = `${EVOLUTION_API_URL}/chat/findChats/${instanceName}`;
+    
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: getHeaders()
+    });
 
+    if (!response.ok) {
+        // Fallback POST se GET falhar
+        const resPost = await fetch(url, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ where: {} })
+        });
+        if (!resPost.ok) throw new Error(`Erro Sync: ${resPost.status}`);
+        return await processChatsResponse(resPost);
+    }
+
+    return await processChatsResponse(response);
+};
+
+async function processChatsResponse(response: Response): Promise<number> {
+    const data = await response.json();
+    const chats = Array.isArray(data) ? data : (data.data || []);
     let count = 0;
+
     for (const chat of chats) {
         const remoteJid = chat.id || chat.remoteJid;
-        if (!remoteJid || typeof remoteJid !== 'string' || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+        if (!remoteJid || !remoteJid.includes('@')) continue;
 
-        const phoneNumber = remoteJid.split('@')[0];
-        // Nota: Não chamamos fetchContactName aqui para cada um para não estourar rate limit no loop
-        // Usamos o que vem no payload inicial se tiver, ou o número
-        const name = chat.name || chat.pushName || chat.verifiedName || phoneNumber;
-        const avatarUrl = chat.profilePictureUrl || chat.profilePicThumb || null;
-
-        const chatPayload = {
+        const { error } = await supabase.from('chats').upsert({
             whatsapp_id: remoteJid,
-            name: name,
-            avatar_url: avatarUrl,
-            status: 'Novo Lead',
+            name: chat.name || chat.pushName || remoteJid.split('@')[0],
+            avatar_url: chat.profilePictureUrl || null,
             last_message_at: new Date().toISOString()
-        };
+        }, { onConflict: 'whatsapp_id' });
 
-        const { error } = await supabase.from('chats').upsert(chatPayload, { onConflict: 'whatsapp_id' });
         if (!error) count++;
     }
     return count;
