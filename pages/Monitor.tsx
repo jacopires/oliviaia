@@ -236,9 +236,9 @@ const Monitor: React.FC = () => {
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background-dark p-4 gap-4">
 
       {/* SIDEBAR - ANTIGRAVITY STYLE */}
-      <motion.aside
+      {/* SIDEBAR - ANTIGRAVITY STYLE */}
+      <aside
         className="w-96 flex flex-col bg-black/20 backdrop-blur-3xl rounded-3xl border border-white/5 overflow-hidden"
-        initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
       >
         <div className="p-6 border-b border-white/5 shrink-0 space-y-4">
           <div className="flex justify-between items-center">
@@ -274,8 +274,8 @@ const Monitor: React.FC = () => {
               key={chat.id}
               onClick={() => setActiveChatId(chat.id)}
               className={`p-3 rounded-xl cursor-pointer transition-all border border-transparent relative group ${activeChatId === chat.id
-                  ? 'bg-gradient-to-r from-primary/10 to-transparent border-l-4 border-l-primary shadow-[0_0_20px_-10px_rgba(16,185,129,0.3)]'
-                  : 'hover:bg-white/5'
+                ? 'bg-gradient-to-r from-primary/10 to-transparent border-l-4 border-l-primary shadow-[0_0_20px_-10px_rgba(16,185,129,0.3)]'
+                : 'hover:bg-white/5'
                 }`}
             >
               <div className="flex items-center gap-3">
@@ -307,7 +307,7 @@ const Monitor: React.FC = () => {
             </motion.div>
           ))}
         </div>
-      </motion.aside>
+      </aside>
 
       {/* MAIN CHAT AREA - ANTIGRAVITY STYLE */}
       <main className="flex-1 flex flex-col bg-black/40 backdrop-blur-3xl rounded-3xl border border-white/5 relative overflow-hidden">
@@ -317,7 +317,7 @@ const Monitor: React.FC = () => {
             <header className="h-20 shrink-0 border-b border-white/5 flex items-center justify-between px-8 bg-black/20 backdrop-blur-xl z-20">
               <div className="flex items-center gap-4">
                 <div className="relative group cursor-pointer" onClick={handleRefreshProfile}>
-                  <motion.div whileHover={{ scale: 1.05 }} className="relative">
+                  <motion.div className="relative">
                     {activeChat.avatar_url ? (
                       <img src={activeChat.avatar_url} className="w-12 h-12 rounded-full object-cover ring-2 ring-white/10" />
                     ) : (
@@ -374,12 +374,12 @@ const Monitor: React.FC = () => {
                 {activeMessages.map((msg) => (
                   <motion.div
                     key={msg.id}
-                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    animate={{ opacity: 1, y: 0 }}
                     className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
                   >
                     <div className={`max-w-[70%] p-5 rounded-2xl relative group backdrop-blur-sm transition-all hover:scale-[1.01] ${msg.sender === 'user'
-                        ? 'bg-white/5 text-gray-100 rounded-bl-sm border border-white/5'
-                        : 'bg-gradient-to-br from-emerald-500/10 to-teal-900/20 text-emerald-100 border border-emerald-500/20 rounded-br-sm shadow-[0_0_15px_-5px_rgba(16,185,129,0.2)]'
+                      ? 'bg-white/5 text-gray-100 rounded-bl-sm border border-white/5'
+                      : 'bg-gradient-to-br from-emerald-500/10 to-teal-900/20 text-emerald-100 border border-emerald-500/20 rounded-br-sm shadow-[0_0_15px_-5px_rgba(16,185,129,0.2)]'
                       }`}>
                       <p className="whitespace-pre-wrap leading-relaxed text-[15px] cursor-text selection:bg-primary/30">{msg.text}</p>
                       <div className="flex justify-end items-center gap-1 mt-2 opacity-50 text-[10px] font-medium tracking-wide">
@@ -396,7 +396,7 @@ const Monitor: React.FC = () => {
             <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
               <motion.div
                 className="bg-black/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 flex items-center gap-3 shadow-2xl shadow-black/50 ring-1 ring-white/5"
-                initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+                animate={{ y: 0, opacity: 1 }}
               >
                 <button className="p-3 hover:bg-white/10 rounded-xl text-gray-400 hover:text-primary transition-colors"><Smile size={22} /></button>
                 <button className="p-3 hover:bg-white/10 rounded-xl text-gray-400 hover:text-primary transition-colors"><Paperclip size={22} /></button>
