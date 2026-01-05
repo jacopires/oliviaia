@@ -502,9 +502,9 @@ const Monitor: React.FC = () => {
         </div>
       </motion.aside>
 
-      {/* CHAT AREA - LAYOUT FIXO */}
+      {/* CHAT AREA - FLOATING UI ARCHITECTURE */}
       <motion.div
-        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden flex flex-col h-full"
+        className="flex-1 bg-black/40 backdrop-blur-3xl rounded-3xl overflow-hidden relative h-full flex flex-col"
         initial={{ x: 20, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.1 }}
@@ -590,10 +590,10 @@ const Monitor: React.FC = () => {
               </div>
             </div>
 
-            {/* Messages Area - SCROLLABLE (flex-1) */}
+            {/* Messages Area - SCROLLABLE COM PB-40 */}
             <div
               ref={chatContainerRef}
-              className="flex-1 overflow-y-auto p-6 space-y-4"
+              className="flex-1 h-full overflow-y-auto p-6 pb-40 space-y-4"
             >
               <AnimatePresence>
                 {activeMessages.map((msg, index) => (
@@ -608,7 +608,7 @@ const Monitor: React.FC = () => {
                     <div
                       className={`max-w-[70%] px-4 py-3 rounded-2xl ${msg.sender === 'user'
                           ? 'bg-white/5 text-text-primary rounded-bl-sm'
-                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-br-sm shadow-glow-green'
+                          : 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-br-sm shadow-glow-green'
                         }`}
                     >
                       {msg.media_url && (
@@ -637,14 +637,14 @@ const Monitor: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {/* Input Area - FIXO NO RODAPÉ (Dynamic Island) */}
-            <div className="shrink-0 p-6 z-50">
-              <motion.div
-                className="max-w-4xl mx-auto bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-2 flex items-center gap-2 shadow-glass"
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.3 }}
-              >
+            {/* Input Area - ABSOLUTE POSITIONING (FLOATING UI) */}
+            <motion.div
+              className="absolute bottom-6 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[95%] md:max-w-4xl z-50"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              <div className="bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-3 flex items-center gap-2 shadow-2xl shadow-black/50">
                 <motion.button
                   className="p-2 rounded-xl hover:bg-white/5 transition-all"
                   whileHover={{ scale: 1.05 }}
@@ -667,20 +667,20 @@ const Monitor: React.FC = () => {
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder="Digite sua mensagem..."
-                  className="flex-1 bg-transparent border-none outline-none text-text-primary placeholder-text-tertiary px-2"
+                  className="flex-1 bg-transparent border-none outline-none text-text-primary placeholder-text-tertiary px-2 text-sm"
                 />
 
                 <motion.button
                   onClick={handleSendMessage}
                   disabled={!inputText.trim()}
-                  className="p-3 rounded-xl bg-primary text-background-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-3 rounded-xl bg-gradient-to-r from-primary to-emerald-400 text-background-dark disabled:opacity-50 disabled:cursor-not-allowed disabled:from-gray-500 disabled:to-gray-600 shadow-glow-green"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <Send size={18} />
                 </motion.button>
-              </motion.div>
-            </div>
+              </div>
+            </motion.div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
