@@ -10,6 +10,12 @@ const getHeaders = () => ({
     'Content-Type': 'application/json'
 });
 
+// Helper: Valida se é chat privado (Pessoas) e não Grupo/Broadcast
+const isPrivateChat = (jid: string) => {
+    return jid && jid.endsWith('@s.whatsapp.net');
+};
+
+
 // --- NOVAS FUNÇÕES DE CICLO DE VIDA ---
 
 export const fetchInstanceStatus = async (instanceName: string) => {
@@ -79,8 +85,13 @@ export const sendTextMessage = async (instanceName: string, remoteJid: string, t
         throw new Error("Configuração .env incompleta");
     }
 
-    // Garante formato do número
+    // 1. Garante formato do número
     const cleanJid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+
+    // 2. Valida que é chat privado (não grupo)
+    if (!isPrivateChat(cleanJid)) {
+        throw new Error("Envio permitido apenas para chats privados (não grupos).");
+    }
 
     const url = `${EVOLUTION_API_URL}/message/sendText/${instanceName}`;
     const body = {
@@ -108,6 +119,19 @@ export const sendTextMessage = async (instanceName: string, remoteJid: string, t
 
         const data = await response.json();
         console.log(`✅ [Evolution] Sucesso:`, data);
+
+        // 3. AUTO-SAVE: Garante que o chat existe no Supabase imediatamente
+        // Isso faz o contato aparecer na sidebar assim que você envia a mensagem
+        const { error } = await supabase.from('chats').upsert({
+            whatsapp_id: cleanJid,
+            name: cleanJid.split('@')[0], // Nome provisório (número) até sincronizar perfil real
+            last_message_at: new Date().toISOString(),
+            status: 'Aberto'
+        }, { onConflict: 'whatsapp_id' });
+
+        if (error) console.error("⚠️ Erro ao salvar chat localmente:", error);
+        else console.log(`💾 Chat auto-salvo: ${cleanJid}`);
+
         return data;
     } catch (error: any) {
         console.error(`❌ [Evolution] Falha na requisição:`, error);
@@ -188,27 +212,28 @@ export const syncChatsFromEvolution = async (instanceName: string): Promise<numb
 
 async function processChatsResponse(response: Response): Promise<number> {
     const data = await response.json();
-    const chats = Array.isArray(data) ? data : (data.data || []);
+    // A API pode retornar array direto ou { data: [...] }
+    const rawChats = Array.isArray(data) ? data : (data.data || []);
     let count = 0;
 
-    for (const chat of chats) {
+    for (const chat of rawChats) {
         const remoteJid = chat.id || chat.remoteJid;
 
-        // --- FILTRO DE BLOQUEIO ---
-        // Sincroniza APENAS chats privados (1:1)
-        // ✅ Aceita: 5511999999999@s.whatsapp.net
-        // 🚫 Rejeita: 120363XXXXX@g.us (Grupos)
-        // 🚫 Rejeita: status@broadcast (Status)
-        if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) {
-            console.log(`🚫 Ignorando chat não-privado: ${remoteJid}`);
+        // --- FILTRO DE BLOQUEIO (IGNORAR GRUPOS) ---
+        if (!isPrivateChat(remoteJid)) {
             continue;
         }
 
+        // Tenta extrair a melhor imagem e nome disponíveis
+        const avatarUrl = chat.profilePictureUrl || chat.profilePicThumb || null;
+        const name = chat.name || chat.pushName || chat.notifyName || remoteJid.split('@')[0];
+
         const { error } = await supabase.from('chats').upsert({
             whatsapp_id: remoteJid,
-            name: chat.name || chat.pushName || remoteJid.split('@')[0],
-            avatar_url: chat.profilePictureUrl || null,
-            last_message_at: new Date().toISOString()
+            name: name,
+            avatar_url: avatarUrl,
+            unread_count: chat.unreadCount || 0,
+            last_message_at: new Date().toISOString() // Atualiza para aparecer no topo
         }, { onConflict: 'whatsapp_id' });
 
         if (!error) count++;
