@@ -54,18 +54,50 @@ const Monitor: React.FC = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // 1. Setup Inicial
+  // 1. Setup Inicial com Validação de Instância
   useEffect(() => {
-    // Se tiver no .env, usa ele direto (mais seguro)
-    if (ENV_INSTANCE_NAME) {
-      setInstanceName(ENV_INSTANCE_NAME);
-    } else {
-      // Senão, tenta buscar do banco
-      supabase.from('integrations_whatsapp').select('instance_id').single()
-        .then(({ data }) => {
-          if (data?.instance_id) setInstanceName(data.instance_id);
-        });
-    }
-    fetchChats();
+    const initInstance = async () => {
+      let target = ENV_INSTANCE_NAME;
+
+      // 1. Se tiver no .env, VERIFICA se é válido antes de usar
+      if (target) {
+        console.log(`Verificando instância do .env: ${target}`);
+        try {
+          // Pequeno fetch para validar (status)
+          // Importar fetchInstanceStatus se necessário ou usar a func local importada
+          const { fetchInstanceStatus } = await import('../services/evolutionService');
+          const status = await fetchInstanceStatus(target);
+
+          if (status === 'NOT_FOUND' || status === 'ERROR') {
+            console.warn(`⚠️ Instância do .env "${target}" não existe ou erro. Tentando banco...`);
+            target = null;
+          } else {
+            console.log(`✅ Instância do .env válida: ${target} (${status})`);
+          }
+        } catch (e) {
+          target = null;
+        }
+      }
+
+      // 2. Se não validou .env, tenta do Banco
+      if (!target) {
+        const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+        if (data?.instance_id) {
+          target = data.instance_id;
+          console.log(`📂 Usando instância do banco: ${target}`);
+        }
+      }
+
+      if (target) {
+        setInstanceName(target);
+      } else {
+        showToast('Nenhuma instância conectada encontrada.', 'error');
+      }
+
+      fetchChats();
+    };
+
+    initInstance();
   }, []);
 
   // 2. Realtime
