@@ -137,8 +137,8 @@ const Integrations: React.FC = () => {
       // 2. Cria na Evolution
       const creationData: any = await createInstance(inputName);
 
-      // 3. Salva Ref no Banco
-      const { error: upErr } = await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
+      // 3. Salva Ref no Banco (Insert simples pois já limpamos a tabela)
+      const { error: upErr } = await supabase.from('integrations_whatsapp').insert({ instance_id: inputName, status: 'created' });
       if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
 
       // 4. Inicia processo de QR (Otimizado)
@@ -170,7 +170,7 @@ const Integrations: React.FC = () => {
       if (delErr) throw new Error('Falha ao limpar conexões antigas: ' + delErr.message);
 
       // 2. Salva no Banco apenas
-      const { error: upErr } = await supabase.from('integrations_whatsapp').upsert({ instance_id: name, status: 'created' }, { onConflict: 'instance_id' });
+      const { error: upErr } = await supabase.from('integrations_whatsapp').insert({ instance_id: name, status: 'created' });
       if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
 
       setInputName(name);
