@@ -45,12 +45,22 @@ const Integrations: React.FC = () => {
   };
 
   const checkSavedInstance = async () => {
+    // 1. Tenta recuperar do banco
     const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+
     if (data?.instance_id) {
       setInstanceName(data.instance_id);
       refreshStatus(data.instance_id);
     } else {
-      setStatus('not_found');
+      // 2. Fallback: Se não tem no banco, verifica .env (Igual ao Monitor.tsx)
+      const envInstance = import.meta.env.VITE_EVOLUTION_INSTANCE_NAME;
+      if (envInstance) {
+        console.log('Integrations: Usando Fallback .env', envInstance);
+        setInstanceName(envInstance);
+        refreshStatus(envInstance);
+      } else {
+        setStatus('not_found');
+      }
     }
   };
 
@@ -126,14 +136,16 @@ const Integrations: React.FC = () => {
     }
 
     try {
-      // 1. Limpa anteriores (Garante Single Instance como regra de negócio atual)
-      await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+      // 1. Limpa anteriores
+      const { error: delErr } = await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+      if (delErr) throw new Error('Falha ao limpar conexões antigas: ' + delErr.message);
 
       // 2. Cria na Evolution
       await createInstance(inputName);
 
       // 3. Salva Ref no Banco
-      await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
+      const { error: upErr } = await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
+      if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
 
       // 4. Inicia processo de QR
       loadQR(inputName);
@@ -156,10 +168,12 @@ const Integrations: React.FC = () => {
     setIsLoadingAction(true);
     try {
       // 1. Limpa anteriores
-      await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+      const { error: delErr } = await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+      if (delErr) throw new Error('Falha ao limpar conexões antigas: ' + delErr.message);
 
       // 2. Salva no Banco apenas
-      await supabase.from('integrations_whatsapp').upsert({ instance_id: name, status: 'created' }, { onConflict: 'instance_id' });
+      const { error: upErr } = await supabase.from('integrations_whatsapp').upsert({ instance_id: name, status: 'created' }, { onConflict: 'instance_id' });
+      if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
 
       setInputName(name);
 
@@ -393,7 +407,9 @@ const Integrations: React.FC = () => {
               <p className="text-sm text-gray-400 leading-relaxed">
                 {status === 'open'
                   ? <>Instância <span className="text-emerald-400 font-mono font-semibold">"{instanceName}"</span> ativa. Olivia está processando mensagens.</>
-                  : 'Conecte seu número para permitir que a IA trie leads automaticamente.'}
+                  : instanceName
+                    ? <>Instância <span className="text-orange-500 font-mono font-semibold">"{instanceName}"</span> desconectada. Reestabeleça a conexão.</>
+                    : 'Conecte seu número para permitir que a IA trie leads automaticamente.'}
               </p>
             </div>
 
