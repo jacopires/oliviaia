@@ -139,7 +139,7 @@ const Integrations: React.FC = () => {
 
       // 3. Salva Ref no Banco (Insert simples pois já limpamos a tabela)
       const { error: upErr } = await supabase.from('integrations_whatsapp').insert({ instance_id: inputName, status: 'created' });
-      if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
+      if (upErr) throw new Error('Falha ao registrar conexão no banco: ' + upErr.message);
 
       // 4. Inicia processo de QR (Otimizado)
       if (creationData && (creationData.qrcode?.base64 || creationData.qrcode?.code || creationData.base64 || creationData.code)) {
@@ -171,7 +171,7 @@ const Integrations: React.FC = () => {
 
       // 2. Salva no Banco apenas
       const { error: upErr } = await supabase.from('integrations_whatsapp').insert({ instance_id: name, status: 'created' });
-      if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
+      if (upErr) throw new Error('Falha ao registrar conexão no banco: ' + upErr.message);
 
       setInputName(name);
 
