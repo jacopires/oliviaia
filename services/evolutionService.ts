@@ -59,6 +59,26 @@ export const createInstance = async (instanceName: string) => {
     return true;
 };
 
+// Tenta listar todas as instâncias (v2)
+export const fetchAllInstances = async () => {
+    if (!EVOLUTION_API_URL) return [];
+    try {
+        // Tenta endpoint padrão
+        let res = await fetch(`${EVOLUTION_API_URL}/instance/fetch`, { headers: getHeaders() });
+        if (res.status === 404) {
+            // Fallback
+            res = await fetch(`${EVOLUTION_API_URL}/instances`, { headers: getHeaders() });
+        }
+
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : (data.data || []);
+    } catch (e) {
+        console.error('Erro ao buscar instâncias:', e);
+        return [];
+    }
+};
+
 export const fetchQRCode = async (instanceName: string) => {
     const res = await fetch(`${EVOLUTION_API_URL}/instance/connect/${instanceName}`, {
         headers: getHeaders()

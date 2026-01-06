@@ -4,7 +4,7 @@ import {
   MessageCircle, Calendar, Mail, Search,
   CheckCircle, AlertCircle, RefreshCw, Server, X, Wifi
 } from 'lucide-react';
-import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance } from '../services/evolutionService';
+import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance, fetchAllInstances } from '../services/evolutionService';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 
@@ -28,10 +28,21 @@ const Integrations: React.FC = () => {
 
   const { showToast } = useToast();
 
+  // Discovery
+  const [discoveredInstances, setDiscoveredInstances] = useState<any[]>([]);
+
   // 1. Check Inicial
   useEffect(() => {
     checkSavedInstance();
+    loadDiscoveredInstances();
   }, []);
+
+  const loadDiscoveredInstances = async () => {
+    const list = await fetchAllInstances();
+    if (list && list.length > 0) {
+      setDiscoveredInstances(list);
+    }
+  };
 
   const checkSavedInstance = async () => {
     const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
@@ -156,7 +167,33 @@ const Integrations: React.FC = () => {
               <Server size={32} />
             </div>
             <h3 className="text-2xl font-bold text-white mb-2">Nova Conexão</h3>
-            <p className="text-gray-400 mb-6">Dê um nome para identificar este WhatsApp (ex: Atendimento).</p>
+
+            {/* LISTA DE INSTÂNCIAS DESCOBERTAS */}
+            {discoveredInstances.length > 0 && (
+              <div className="mb-6">
+                <p className="text-xs font-bold text-gray-500 uppercase mb-2 text-left px-2">Instâncias Encontradas:</p>
+                <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar bg-black/30 rounded-xl p-2 mb-4">
+                  {discoveredInstances.map((inst: any) => (
+                    <button
+                      key={inst.instance.instanceName}
+                      onClick={() => {
+                        setInputName(inst.instance.instanceName);
+                        handleConnect(); // Tenta conectar direto
+                      }}
+                      className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-between group transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${inst.instance.status === 'open' ? 'bg-emerald-500' : 'bg-yellow-500'}`} />
+                        <span className="text-white font-mono text-sm">{inst.instance.instanceName}</span>
+                      </div>
+                      <span className="text-xs text-gray-500 group-hover:text-primary">Conectar</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-500 mb-2">Ou digite o nome de uma nova:</div>
+              </div>
+            )}
+
             <input
               autoFocus
               value={inputName}
@@ -170,7 +207,7 @@ const Integrations: React.FC = () => {
               disabled={isLoadingAction}
               className="w-full py-3 bg-primary hover:bg-emerald-400 text-black font-bold rounded-xl transition-all flex justify-center gap-2 items-center disabled:opacity-50"
             >
-              {isLoadingAction ? <RefreshCw className="animate-spin" /> : 'Gerar QR Code'}
+              {isLoadingAction ? <RefreshCw className="animate-spin" /> : 'Criar / Conectar'}
             </button>
           </div>
         );
