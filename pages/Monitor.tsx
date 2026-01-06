@@ -5,7 +5,8 @@ import { useToast } from '../components/ToastProvider';
 import {
   syncChatsFromEvolution,
   updateChatProfile,
-  sendTextMessage
+  sendTextMessage,
+  syncMessages
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
@@ -93,12 +94,21 @@ const Monitor: React.FC = () => {
   useEffect(() => {
     if (activeChatId) {
       fetchMessages(activeChatId);
+
+      // Sync de histórico ao abrir o chat
+      const chat = chats.find(c => c.id === activeChatId);
+      if (chat && instanceName) {
+        // Não bloqueia a UI, faz em background
+        syncMessages(instanceName, chat.whatsapp_id).then(count => {
+          if (count && count > 0) fetchMessages(activeChatId);
+        });
+      }
+
       scrollToBottom();
       setIsEditingName(false);
-      const chat = chats.find(c => c.id === activeChatId);
       if (chat) setTempName(chat.name);
     }
-  }, [activeChatId]);
+  }, [activeChatId, instanceName]);
 
   // --- Data Fetching ---
 
@@ -216,8 +226,8 @@ const Monitor: React.FC = () => {
               key={chat.id}
               onClick={() => setActiveChatId(chat.id)}
               className={`p-3 rounded-xl cursor-pointer transition-all border border-transparent flex items-center gap-3 ${activeChatId === chat.id
-                  ? 'bg-primary/10 border-primary/20 shadow-[0_0_20px_-5px_rgba(16,185,129,0.1)]'
-                  : 'hover:bg-white/5'
+                ? 'bg-primary/10 border-primary/20 shadow-[0_0_20px_-5px_rgba(16,185,129,0.1)]'
+                : 'hover:bg-white/5'
                 }`}
             >
               <div className="relative">
@@ -304,8 +314,8 @@ const Monitor: React.FC = () => {
                   className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
                 >
                   <div className={`max-w-[70%] p-4 rounded-2xl relative shadow-lg ${msg.sender === 'user'
-                      ? 'bg-[#1f1f1f] text-gray-200 rounded-tl-sm'
-                      : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20 rounded-tr-sm'
+                    ? 'bg-[#1f1f1f] text-gray-200 rounded-tl-sm'
+                    : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20 rounded-tr-sm'
                     }`}>
                     <p className="whitespace-pre-wrap leading-relaxed text-sm">{msg.text}</p>
                     <span className="text-[10px] opacity-40 mt-1 block text-right">

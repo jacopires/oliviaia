@@ -242,3 +242,60 @@ async function processChatsResponse(response: Response): Promise<number> {
     console.log(`✅ Sincronizados ${count} chats privados`);
     return count;
 }
+
+export const syncMessages = async (instanceName: string, remoteJid: string) => {
+    if (!EVOLUTION_API_URL) return;
+
+    console.log(`📥 Syncing messages for ${remoteJid}...`);
+    const cleanJid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+
+    // Busca últimas 50 mensagems
+    const body = {
+        where: {
+            key: { remoteJid: cleanJid }
+        },
+        take: 50
+    };
+
+    try {
+        const res = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+
+        if (!res.ok) throw new Error('Falha ao buscar mensagens');
+
+        const data = await res.json();
+        const messages = data.messages || data || []; // Adjust based on actual API response
+
+        // Vamos precisar do chat_id interno do supabase
+        const { data: chatData } = await supabase.from('chats').select('id').eq('whatsapp_id', cleanJid).single();
+        if (!chatData?.id) return;
+
+        let count = 0;
+        for (const msg of messages) {
+            // Mapeia Evolution Message -> Supabase Message
+            // Verifica quem enviou. Se fromMe=true, é 'agent'. Se falso, 'user'.
+            // obs: Adapte conforme estrutura real da mensagem do Evolution
+            const isFromMe = msg.key?.fromMe || msg.fromMe;
+            const textContent = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.content || '';
+
+            if (!textContent) continue;
+
+            const { error } = await supabase.from('messages').upsert({
+                chat_id: chatData.id,
+                sender: isFromMe ? 'agent' : 'user',
+                text: textContent,
+                created_at: new Date(msg.messageTimestamp * 1000 || Date.now()).toISOString()
+            }, { onConflict: 'created_at' }); // Idealmente use um ID único da mensagem se tiver, mas created_at serve pra MVP se não houver colisão exata
+
+            if (!error) count++;
+        }
+        console.log(`✅ ${count} mensagens sincronizadas.`);
+        return count;
+
+    } catch (e) {
+        console.error("Erro syncMessages:", e);
+    }
+};

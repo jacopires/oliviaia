@@ -27,7 +27,7 @@ const Sidebar: React.FC = () => {
   ] : [
     { name: 'Visão Geral', icon: 'analytics', path: '/', category: 'Principal' },
     { name: 'Monitoramento', icon: 'smart_toy', path: '/agents', category: 'Principal' },
-    { name: 'Chats Conversacionais', icon: 'forum', path: '/monitor', category: 'Principal' },
+    { name: 'Conversas', icon: 'forum', path: '/monitor', category: 'Principal' },
     { name: 'Integrações', icon: 'link', path: '/integrations', category: 'Principal' },
     { name: 'Configurações', icon: 'settings', path: '/settings', category: 'Principal' },
   ];
