@@ -51,6 +51,15 @@ serve(async (req) => {
 
             console.log('📞 remoteJid:', remoteJid)
 
+            // FILTRO: Ignorar grupos, broadcasts e newsletters
+            if (remoteJid && (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter'))) {
+                console.log('⏭️ Ignorando grupo/broadcast:', remoteJid)
+                return new Response(JSON.stringify({
+                    received: true,
+                    skipped: 'group_or_broadcast'
+                }), { headers: corsHeaders })
+            }
+
             // Se tem remoteJid, tentar extrair texto
             if (remoteJid) {
                 // Texto pode estar em vários lugares
