@@ -1,0 +1,20 @@
+{
+  "connectionState": {
+    "status": 404,
+    "error": "Not Found",
+    "response": {
+      "message": [
+        "The \"Olivia\" instance does not exist"
+      ]
+    }
+  },
+  "chatsRaw": {
+    "status": 404,
+    "error": "Not Found",
+    "response": {
+      "message": [
+        "Cannot GET /chat/findChats/Olivia"
+      ]
+    }
+  }
+}

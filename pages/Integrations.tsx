@@ -4,7 +4,7 @@ import {
   MessageCircle, Calendar, Mail, Search,
   CheckCircle, AlertCircle, RefreshCw, Server, X, Wifi
 } from 'lucide-react';
-import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance, fetchAllInstances } from '../services/evolutionService';
+import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance, fetchAllInstances, configureWebhook } from '../services/evolutionService';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 
@@ -81,14 +81,18 @@ const Integrations: React.FC = () => {
         setInstanceName(name);
 
         // SE O MODAL ESTIVER ABERTO -> MOSTRA SUCESSO
-        if (isModalOpen && connectionStep !== 'success') {
-          setConnectionStep('success');
-          showToast('Dispositivo conectado com sucesso!', 'success');
-          setTimeout(() => {
-            setIsModalOpen(false);
-            setConnectionStep('input'); // Reset para próxima vez
-          }, 2500);
-        }
+        setConnectionStep('success');
+
+        // AUTO-SETE WEBHOOK
+        configureWebhook(name, 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook')
+          .then(() => console.log('✅ Webhook configurado automaticamente'))
+          .catch(err => console.error('❌ Falha ao configurar webhook:', err));
+
+        showToast('Dispositivo conectado com sucesso!', 'success');
+        setTimeout(() => {
+          setIsModalOpen(false);
+          setConnectionStep('input'); // Reset para próxima vez
+        }, 2500);
       } else if (s === 'close') {
         setStatus('close');
         // Se caiu a conexão e não estamos no modal, avisa
@@ -181,6 +185,12 @@ const Integrations: React.FC = () => {
         setStatus('open');
         setInstanceName(name);
         setConnectionStep('success');
+
+        // AUTO-SETE WEBHOOK
+        configureWebhook(name, 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook')
+          .then(() => console.log('✅ Webhook configurado automaticamente'))
+          .catch(err => console.error('❌ Falha ao configurar webhook:', err));
+
         showToast('Dispositivo conectado com sucesso!', 'success');
         setTimeout(() => {
           setIsModalOpen(false);

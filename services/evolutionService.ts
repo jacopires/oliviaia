@@ -12,7 +12,17 @@ const getHeaders = () => ({
 
 // Helper: Valida se é chat privado (Pessoas) e não Grupo/Broadcast
 const isPrivateChat = (jid: string) => {
-    return jid && jid.endsWith('@s.whatsapp.net');
+    if (!jid) return false;
+    // REJEITA EXPLICITAMENTE GRUPOS E LISTAS
+    if (jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@newsletter')) return false;
+
+    // Se tiver @, tem que ser s.whatsapp.net ou c.us
+    if (jid.includes('@')) {
+        return jid.includes('@s.whatsapp.net') || jid.includes('@c.us');
+    }
+
+    // Se for apenas números, assume que é privado (formataremos depois)
+    return true;
 };
 
 
@@ -33,6 +43,59 @@ export const fetchInstanceStatus = async (instanceName: string) => {
     } catch (error) {
         console.error("Erro ao checar status:", error);
         return 'ERROR';
+    }
+};
+
+export const configureWebhook = async (instanceName: string, webhookUrl: string) => {
+    if (!EVOLUTION_API_URL) throw new Error("API URL não configurada");
+
+    console.log(`📡 Configurando webhook para ${instanceName} -> ${webhookUrl}`);
+
+    const res = await fetch(`${EVOLUTION_API_URL}/webhook/set/${instanceName}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+            "webhook": {
+                "enabled": true,
+                "url": webhookUrl,
+                "webhookByEvents": true,
+                "events": [
+                    "MESSAGES_UPSERT",
+                    "MESSAGES_UPDATE",
+                    "CONNECTION_UPDATE",
+                    "SEND_MESSAGE"
+                ]
+            }
+        })
+    });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`❌ [Configure Webhook] Falha (${res.status}):`, errorText);
+        // Tenta parsear para mostrar mensagem limpa
+        try {
+            const err = JSON.parse(errorText);
+            const msg = err.response?.message || err.message || JSON.stringify(err);
+            throw new Error(`Erro Webhook: ${msg}`);
+        } catch (e) {
+            throw new Error(`Erro API (${res.status}): ${errorText}`);
+        }
+    }
+
+    return await res.json();
+};
+
+export const fetchWebhookConfig = async (instanceName: string) => {
+    if (!EVOLUTION_API_URL) return null;
+    try {
+        const res = await fetch(`${EVOLUTION_API_URL}/webhook/find/${instanceName}`, {
+            headers: getHeaders()
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        console.error("Erro ao buscar config webhook:", e);
+        return null;
     }
 };
 
@@ -153,7 +216,12 @@ export const sendTextMessage = async (instanceName: string, remoteJid: string, t
         }, { onConflict: 'whatsapp_id' });
 
         if (error) console.error("⚠️ Erro ao salvar chat localmente:", error);
-        else console.log(`💾 Chat auto-salvo: ${cleanJid}`);
+        else {
+            console.log(`💾 Chat auto-salvo: ${cleanJid}`);
+            // "Turbo": Ao criar/interagir, garante que temos o histórico recente
+            // Isso cobre o caso "contato é criado e ai as conversas são sincronizadas"
+            syncMessages(instanceName, cleanJid).catch(e => console.error("Falha background sync:", e));
+        }
 
         return data;
     } catch (error: any) {
@@ -208,63 +276,144 @@ export const updateChatProfile = async (instanceName: string, chatId: string, re
 };
 
 /**
- * Sincronização (Mantido)
+ * Sincroniza apenas conversas recentes (chats com mensagens)
+ * Não sincroniza todos os contatos - apenas aqueles que já conversaram
  */
-export const syncChatsFromEvolution = async (instanceName: string): Promise<number> => {
-    // Mantém compatibilidade com código anterior
+export const syncChatsFromEvolution = async (instanceName: string, limit: number = 50): Promise<number> => {
     const url = `${EVOLUTION_API_URL}/chat/findChats/${instanceName}`;
+    console.log(`📡 Sincronizando conversas recentes de: ${instanceName}`);
 
+    // Always try POST first for v2.3.x - requesting only recent chats
     const response = await fetch(url, {
-        method: 'GET',
-        headers: getHeaders()
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+            where: {},
+            // Some Evolution versions support take/limit
+            take: limit
+        })
     });
 
     if (!response.ok) {
-        // Fallback POST se GET falhar
-        const resPost = await fetch(url, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify({ where: {} })
-        });
-        if (!resPost.ok) throw new Error(`Erro Sync: ${resPost.status}`);
-        return await processChatsResponse(resPost);
+        console.warn(`⚠️ Erro ao buscar chats (POST): ${response.status} - Tentando GET fallback...`);
+        const resGet = await fetch(url, { method: 'GET', headers: getHeaders() });
+        if (!resGet.ok) throw new Error(`Erro Sync Chats: ${resGet.status}`);
+        return await processChatsResponse(resGet, limit);
     }
 
-    return await processChatsResponse(response);
+    return await processChatsResponse(response, limit);
 };
 
-async function processChatsResponse(response: Response): Promise<number> {
+async function processChatsResponse(response: Response, limit: number = 50): Promise<number> {
     const data = await response.json();
+
     // A API pode retornar array direto ou { data: [...] }
-    const rawChats = Array.isArray(data) ? data : (data.data || []);
+    let rawChats = Array.isArray(data) ? data : (data.data || []);
+
+    // Limita a quantidade de chats para não sobrecarregar
+    if (rawChats.length > limit) {
+        console.log(`📊 Limitando de ${rawChats.length} para ${limit} chats`);
+        rawChats = rawChats.slice(0, limit);
+    }
+
+    console.log(`📊 Processando ${rawChats.length} chats`);
     let count = 0;
+    let skipped = 0;
 
     for (const chat of rawChats) {
         const remoteJid = chat.id || chat.remoteJid;
 
-        // --- FILTRO DE BLOQUEIO (IGNORAR GRUPOS) ---
+        // --- FILTRO: IGNORAR GRUPOS E BROADCASTS ---
         if (!isPrivateChat(remoteJid)) {
+            skipped++;
             continue;
         }
 
         // Tenta extrair a melhor imagem e nome disponíveis
         const avatarUrl = chat.profilePictureUrl || chat.profilePicThumb || null;
-        const name = chat.name || chat.pushName || chat.notifyName || remoteJid.split('@')[0];
+        const name = chat.name || chat.pushName || chat.notifyName || remoteJid?.split('@')[0] || 'Sem Nome';
+
+        // TENTA PEGAR A DATA REAL DA ÚLTIMA MENSAGEM
+        // conversationTimestamp é um timestamp unix (segundos)
+        let lastMsgDate = new Date().toISOString();
+        if (chat.conversationTimestamp) {
+            lastMsgDate = new Date(Number(chat.conversationTimestamp) * 1000).toISOString();
+        }
 
         const { error } = await supabase.from('chats').upsert({
             whatsapp_id: remoteJid,
             name: name,
             avatar_url: avatarUrl,
             unread_count: chat.unreadCount || 0,
-            last_message_at: new Date().toISOString() // Atualiza para aparecer no topo
+            last_message_at: lastMsgDate
         }, { onConflict: 'whatsapp_id' });
 
-        if (!error) count++;
+        if (error) {
+            console.error(`❌ Erro ao salvar chat ${remoteJid}:`, error);
+        } else {
+            count++;
+        }
     }
 
-    console.log(`✅ Sincronizados ${count} chats privados`);
+    console.log(`✅ Sincronizados ${count} conversas (${skipped} grupos ignorados)`);
     return count;
 }
+
+export const syncContactsFromEvolution = async (instanceName: string): Promise<number> => {
+    // Correct endpoint for Evolution v2.x
+    const url = `${EVOLUTION_API_URL}/chat/findContacts/${instanceName}`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ where: {} })
+    });
+
+    if (!response.ok) {
+        console.warn(`⚠️ Erro ao buscar contatos: ${response.status}`);
+        return 0; // Return 0 instead of throwing to not break the sync flow
+    }
+
+    const data = await response.json();
+    console.log('📦 Raw Contacts Response:', data);
+    const rawContacts = Array.isArray(data) ? data : (data.data || []);
+    console.log(`📊 Total de contatos recebidos: ${rawContacts.length}`);
+
+    let count = 0;
+    let skipped = 0;
+
+    for (const contact of rawContacts) {
+        const remoteJid = contact.id || contact.remoteJid;
+
+        if (!isPrivateChat(remoteJid)) {
+            skipped++;
+            continue;
+        }
+
+        const name = contact.name || contact.pushName || contact.notify || remoteJid?.split('@')[0] || 'Sem Nome';
+        const avatarUrl = contact.profilePictureUrl || null;
+
+        // Use upsert directly - much simpler and avoids 406 errors
+        const { error } = await supabase.from('chats').upsert({
+            whatsapp_id: remoteJid,
+            name: name,
+            avatar_url: avatarUrl,
+            // Don't update last_message_at to avoid shuffling chat order
+        }, {
+            onConflict: 'whatsapp_id',
+            ignoreDuplicates: false // Update existing records
+        });
+
+        if (error) {
+            console.error(`❌ Erro ao salvar contato ${remoteJid}:`, error);
+        } else {
+            count++;
+        }
+    }
+
+    console.log(`✅ Sincronizados ${count} contatos (${skipped} ignorados)`);
+    return count;
+};
 
 export const syncMessages = async (instanceName: string, remoteJid: string) => {
     if (!EVOLUTION_API_URL) return;
@@ -290,32 +439,52 @@ export const syncMessages = async (instanceName: string, remoteJid: string) => {
         if (!res.ok) throw new Error('Falha ao buscar mensagens');
 
         const data = await res.json();
-        const messages = data.messages || data || []; // Adjust based on actual API response
+        console.log('📦 Raw Messages Response:', data); // DEBUG
+
+        // Evolution v2 usually returns an array of messages directly or in { messages: [...] }
+        const messages = Array.isArray(data) ? data : (data.messages || []);
 
         // Vamos precisar do chat_id interno do supabase
         const { data: chatData } = await supabase.from('chats').select('id').eq('whatsapp_id', cleanJid).single();
-        if (!chatData?.id) return;
+        if (!chatData?.id) {
+            console.warn(`⚠️ Chat local não encontrado para ${cleanJid}. Sincronize os chats primeiro.`);
+            return;
+        }
 
         let count = 0;
         for (const msg of messages) {
             // Mapeia Evolution Message -> Supabase Message
             // Verifica quem enviou. Se fromMe=true, é 'agent'. Se falso, 'user'.
-            // obs: Adapte conforme estrutura real da mensagem do Evolution
             const isFromMe = msg.key?.fromMe || msg.fromMe;
-            const textContent = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.content || '';
+
+            // Extract text content safely
+            let textContent = '';
+            if (typeof msg.content === 'string') {
+                textContent = msg.content;
+            } else if (msg.message) {
+                textContent =
+                    msg.message.conversation ||
+                    msg.message.extendedTextMessage?.text ||
+                    msg.message.imageMessage?.caption ||
+                    '';
+            }
 
             if (!textContent) continue;
+
+            // Use messageTimestamp (seconds) or fallback
+            // Note: Evolution might return 'pushName' in msg
 
             const { error } = await supabase.from('messages').upsert({
                 chat_id: chatData.id,
                 sender: isFromMe ? 'agent' : 'user',
                 text: textContent,
-                created_at: new Date(msg.messageTimestamp * 1000 || Date.now()).toISOString()
-            }, { onConflict: 'created_at' }); // Idealmente use um ID único da mensagem se tiver, mas created_at serve pra MVP se não houver colisão exata
+                created_at: new Date((msg.messageTimestamp || Date.now() / 1000) * 1000).toISOString()
+            }, { onConflict: 'created_at' }); // WARNING: 'created_at' conflict might be risky if multiple msgs per second. 
+            // In a better schema, we should store message ID (msg.key.id).
 
             if (!error) count++;
         }
-        console.log(`✅ ${count} mensagens sincronizadas.`);
+        console.log(`✅ ${count} mensagens sincronizadas para ${cleanJid}`);
         return count;
 
     } catch (e) {

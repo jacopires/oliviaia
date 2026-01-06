@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 import {
-  syncChatsFromEvolution,
   updateChatProfile,
   sendTextMessage,
   syncMessages,
-  fetchInstanceStatus
+  fetchInstanceStatus,
+  configureWebhook,
+  fetchWebhookConfig
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
@@ -43,7 +44,7 @@ const Monitor: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Estados de Controle
-  const [isSyncing, setIsSyncing] = useState(false);
+  // Sync removido - sistema 100% sob demanda
   const [isSending, setIsSending] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
 
@@ -61,45 +62,71 @@ const Monitor: React.FC = () => {
     initInstance();
 
     // Listener para detectar conexão em tempo real (ex: conectou na outra aba)
-    const sub = supabase.channel('monitor_auth')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'integrations_whatsapp' }, () => {
-        console.log('🔄 Mudança na conexão detectada, recarregando...');
-        initInstance();
+    const sub = supabase.channel('monitor_dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
+        console.log('⚡ [Monitor] Realtime Update (chats):', payload);
+        fetchChats();
       })
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
+        console.log('⚡ [Monitor] Realtime Update (messages):', payload);
+        // Opcional: atualizar mensagens se o chat estiver aberto
+      })
+      .subscribe((status) => {
+        console.log('🔌 [Monitor] Status Realtime:', status);
+      });
 
     return () => { supabase.removeChannel(sub); };
   }, []);
 
   const initInstance = async () => {
+    console.log('🚀 [Monitor] Iniciando busca de instância...');
     let target = null;
 
     // 1. PRIORIDADE: Banco de Dados (Intenção do Usuário)
     try {
-      const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+      const { data, error } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+      console.log('📊 [Monitor] Resultado DB:', { data, error });
       if (data?.instance_id) {
         target = data.instance_id;
       }
     } catch (e) {
-      console.error('Erro ao ler banco:', e);
-    }
-
-    // 2. FALLBACK: .env (Apenas se não houver nada no banco!)
-    if (!target) {
-      const envInstance = ENV_INSTANCE_NAME;
-      // Valida para não usar string vazia
-      if (envInstance) {
-        target = envInstance;
-      }
+      console.error('❌ [Monitor] Erro ao ler banco:', e);
     }
 
     // 3. Define State
     if (target) {
+      console.log('✅ [Monitor] Instância encontrada:', target);
       setInstanceName(target);
       fetchChats();
+
+      // --- AUTO-CHECK WEBHOOK ---
+      checkAndFixWebhook(target);
+
     } else {
+      console.warn('⚠️ [Monitor] Nenhuma instância conectada!');
       setInstanceName(null);
       showToast('Nenhuma instância conectada. Vá em Integrações.', 'error');
+    }
+  };
+
+  const checkAndFixWebhook = async (name: string) => {
+    try {
+      console.log('🕵️ [Monitor] Verificando integridade do Webhook...');
+      const config = await fetchWebhookConfig(name);
+      const targetUrl = 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook';
+
+      const needsConfig = !config?.webhook?.enabled || config?.webhook?.url !== targetUrl;
+
+      if (needsConfig) {
+        console.warn('⚠️ [Monitor] Webhook desconfigurado ou incorreto. Corrigindo...');
+        await configureWebhook(name, targetUrl);
+        console.log('✅ [Monitor] Webhook blindado com sucesso.');
+        showToast('Sistema de mensagens reconectado automaticamente.', 'success');
+      } else {
+        console.log('🛡️ [Monitor] Webhook está operante e correto.');
+      }
+    } catch (e) {
+      console.error('❌ [Monitor] Falha ao verificar webhook:', e);
     }
   };
 
@@ -148,7 +175,9 @@ const Monitor: React.FC = () => {
   // --- Data Fetching ---
 
   const fetchChats = async () => {
-    const { data } = await supabase.from('chats').select('*').order('last_message_at', { ascending: false });
+    console.log('🔍 [Monitor] Buscando chats do Supabase...');
+    const { data, error } = await supabase.from('chats').select('*').order('last_message_at', { ascending: false });
+    console.log('📦 [Monitor] Chats encontrados:', { count: data?.length, error });
     if (data) setChats(data);
   };
 
@@ -203,19 +232,7 @@ const Monitor: React.FC = () => {
     showToast('Nome salvo!', 'success');
   };
 
-  const handleSync = async () => {
-    if (!instanceName) return showToast('Instância não configurada', 'error');
-    setIsSyncing(true);
-    try {
-      const count = await syncChatsFromEvolution(instanceName);
-      showToast(`✅ ${count} chats sincronizados!`, 'success');
-      fetchChats();
-    } catch (e) {
-      showToast('Erro ao sincronizar', 'error');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+  // Sync manual removido - conversas criadas apenas via webhook ou envio
 
   // --- Render ---
 
@@ -224,6 +241,9 @@ const Monitor: React.FC = () => {
     c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.whatsapp_id.includes(searchQuery)
   );
+
+  // Debug: Log render state
+  console.log('🎨 [Monitor] Renderizando:', { totalChats: chats.length, filteredChats: filteredChats.length, searchQuery });
 
   return (
     <div className="flex h-[calc(100vh-theme(spacing.header))] overflow-hidden bg-background-dark gap-4 p-4">
@@ -238,12 +258,7 @@ const Monitor: React.FC = () => {
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <MessageSquare className="text-primary" size={20} /> Conversas
             </h2>
-            <button
-              onClick={handleSync} disabled={isSyncing}
-              className={`p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all ${isSyncing ? 'animate-spin text-primary' : 'text-text-secondary'}`}
-            >
-              <RefreshCw size={18} />
-            </button>
+            {/* Botão de sync removido - sistema sob demanda */}
           </div>
           <div className="relative group">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary group-focus-within:text-primary transition-colors" />
@@ -270,19 +285,19 @@ const Monitor: React.FC = () => {
                   <img src={chat.avatar_url} className="w-12 h-12 rounded-full object-cover ring-2 ring-white/5" />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-800 to-black ring-2 ring-white/5 flex items-center justify-center text-sm font-bold text-gray-400">
-                    {chat.name.slice(0, 2).toUpperCase()}
+                    {(chat.name || chat.whatsapp_id || '??').slice(0, 2).toUpperCase()}
                   </div>
                 )}
                 {activeChatId === chat.id && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-black" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between">
-                  <h3 className={`font-semibold truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300'}`}>{chat.name}</h3>
+                  <h3 className={`font-semibold truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300'}`}>{chat.name || chat.whatsapp_id?.split('@')[0] || 'Sem Nome'}</h3>
                   <span className="text-[10px] text-gray-500">
-                    {new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {chat.last_message_at ? new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                   </span>
                 </div>
-                <p className="text-xs text-gray-500 truncate">{chat.status}</p>
+                <p className="text-xs text-gray-500 truncate">{chat.status || 'Ativo'}</p>
               </div>
             </div>
           ))}
