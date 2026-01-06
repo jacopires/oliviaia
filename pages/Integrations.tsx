@@ -116,22 +116,65 @@ const Integrations: React.FC = () => {
   const handleConnect = async () => {
     if (!inputName.trim()) return showToast('Defina um nome para a instância', 'error');
     setIsLoadingAction(true);
-    setConnectionStep('qr'); // Muda para tela de QR
-    setQrCode(null); // Limpa QR antigo
+    setConnectionStep('qr');
+    setQrCode(null);
 
     try {
-      // 1. Cria ou recupera
+      // 1. Limpa anteriores (Garante Single Instance como regra de negócio atual)
+      await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+
+      // 2. Cria na Evolution
       await createInstance(inputName);
 
-      // 2. Salva Ref no Banco
+      // 3. Salva Ref no Banco
       await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
 
-      // 3. Inicia processo de QR
+      // 4. Inicia processo de QR
       loadQR(inputName);
 
     } catch (err: any) {
+      console.error(err);
+      // Se já existe, tenta conectar mesmo assim
+      if (err.message && (err.message.includes('exists') || err.message.includes('409'))) {
+        handleConnectExisting(inputName);
+      } else {
+        setConnectionStep('error');
+        showToast('Erro ao criar instância: ' + err.message, 'error');
+      }
+    } finally {
+      setIsLoadingAction(false);
+    }
+  };
+
+  const handleConnectExisting = async (name: string) => {
+    setIsLoadingAction(true);
+    try {
+      // 1. Limpa anteriores
+      await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
+
+      // 2. Salva no Banco apenas
+      await supabase.from('integrations_whatsapp').upsert({ instance_id: name, status: 'created' }, { onConflict: 'instance_id' });
+
+      setInputName(name);
+
+      // 3. Checa status
+      const status = await fetchInstanceStatus(name);
+      if (status === 'open') {
+        setStatus('open');
+        setInstanceName(name);
+        setConnectionStep('success');
+        showToast('Dispositivo conectado com sucesso!', 'success');
+        setTimeout(() => {
+          setIsModalOpen(false);
+          setConnectionStep('input');
+        }, 2000);
+      } else {
+        setConnectionStep('qr');
+        loadQR(name);
+      }
+    } catch (e) {
+      showToast('Erro ao conectar existente', 'error');
       setConnectionStep('error');
-      showToast('Erro ao criar instância: ' + err.message, 'error');
     } finally {
       setIsLoadingAction(false);
     }
@@ -177,8 +220,7 @@ const Integrations: React.FC = () => {
                     <button
                       key={inst.instance.instanceName}
                       onClick={() => {
-                        setInputName(inst.instance.instanceName);
-                        handleConnect(); // Tenta conectar direto
+                        handleConnectExisting(inst.instance.instanceName);
                       }}
                       className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-between group transition-all"
                     >

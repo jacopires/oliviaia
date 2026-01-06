@@ -6,7 +6,8 @@ import {
   syncChatsFromEvolution,
   updateChatProfile,
   sendTextMessage,
-  syncMessages
+  syncMessages,
+  fetchInstanceStatus
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
@@ -55,50 +56,52 @@ const Monitor: React.FC = () => {
 
   // 1. Setup Inicial
   // 1. Setup Inicial com Validação de Instância
+  // 1. Setup Inicial com Validação de Instância
   useEffect(() => {
-    const initInstance = async () => {
-      let target = ENV_INSTANCE_NAME;
-
-      // 1. Se tiver no .env, VERIFICA se é válido antes de usar
-      if (target) {
-        console.log(`Verificando instância do .env: ${target}`);
-        try {
-          // Pequeno fetch para validar (status)
-          // Importar fetchInstanceStatus se necessário ou usar a func local importada
-          const { fetchInstanceStatus } = await import('../services/evolutionService');
-          const status = await fetchInstanceStatus(target);
-
-          if (status === 'NOT_FOUND' || status === 'ERROR') {
-            console.warn(`⚠️ Instância do .env "${target}" não existe ou erro. Tentando banco...`);
-            target = null;
-          } else {
-            console.log(`✅ Instância do .env válida: ${target} (${status})`);
-          }
-        } catch (e) {
-          target = null;
-        }
-      }
-
-      // 2. Se não validou .env, tenta do Banco
-      if (!target) {
-        const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
-        if (data?.instance_id) {
-          target = data.instance_id;
-          console.log(`📂 Usando instância do banco: ${target}`);
-        }
-      }
-
-      if (target) {
-        setInstanceName(target);
-      } else {
-        showToast('Nenhuma instância conectada encontrada.', 'error');
-      }
-
-      fetchChats();
-    };
-
     initInstance();
+
+    // Listener para detectar conexão em tempo real (ex: conectou na outra aba)
+    const sub = supabase.channel('monitor_auth')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'integrations_whatsapp' }, () => {
+        console.log('🔄 Mudança na conexão detectada, recarregando...');
+        initInstance();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(sub); };
   }, []);
+
+  const initInstance = async () => {
+    let target = null;
+
+    // 1. PRIORIDADE: Banco de Dados (Intenção do Usuário)
+    try {
+      const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+      if (data?.instance_id) {
+        target = data.instance_id;
+      }
+    } catch (e) {
+      console.error('Erro ao ler banco:', e);
+    }
+
+    // 2. FALLBACK: .env (Apenas se não houver nada no banco!)
+    if (!target) {
+      const envInstance = ENV_INSTANCE_NAME;
+      // Valida para não usar string vazia
+      if (envInstance) {
+        target = envInstance;
+      }
+    }
+
+    // 3. Define State
+    if (target) {
+      setInstanceName(target);
+      fetchChats();
+    } else {
+      setInstanceName(null);
+      showToast('Nenhuma instância conectada. Vá em Integrações.', 'error');
+    }
+  };
 
   // 2. Realtime
   useEffect(() => {
