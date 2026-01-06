@@ -46,6 +46,7 @@ const Monitor: React.FC = () => {
   // Estados de Controle
   // Sync removido - sistema 100% sob demanda
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
 
   // Edição de Perfil
@@ -130,18 +131,46 @@ const Monitor: React.FC = () => {
     }
   };
 
-  // 2. Realtime
+  // 2. Realtime para Chats
   useEffect(() => {
-    const sub = supabase.channel('monitor_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, fetchChats)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-        if (activeChatId && payload.new.chat_id === activeChatId) {
-          setActiveMessages(prev => [...prev, payload.new as Message]);
-          scrollToBottom();
-        }
+    const chatSub = supabase.channel('monitor_chats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
+        console.log('⚡ [Monitor] Realtime chats:', payload);
+        fetchChats();
       })
       .subscribe();
-    return () => { supabase.removeChannel(sub); };
+    return () => { supabase.removeChannel(chatSub); };
+  }, []);
+
+  // 3. Realtime para Mensagens (filtrado por chat ativo)
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    console.log('🔌 [Monitor] Subscribing to messages for chat:', activeChatId);
+
+    const msgChannel = supabase.channel(`room:${activeChatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${activeChatId}` // Server-side filter
+        },
+        (payload) => {
+          console.log('🔔 [Monitor] Nova mensagem realtime:', payload.new);
+          setActiveMessages((prev) => [...prev, payload.new as Message]);
+          scrollToBottom();
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 [Monitor] Message subscription status:', status);
+      });
+
+    return () => {
+      console.log('🔌 [Monitor] Unsubscribing from messages for chat:', activeChatId);
+      supabase.removeChannel(msgChannel);
+    };
   }, [activeChatId]);
 
   // 3. Auto Scroll
@@ -182,8 +211,32 @@ const Monitor: React.FC = () => {
   };
 
   const fetchMessages = async (chatId: string) => {
-    const { data } = await supabase.from('messages').select('*').eq('chat_id', chatId).order('created_at', { ascending: true });
-    setActiveMessages(data || []);
+    if (!chatId) return;
+
+    console.log('🔍 [Monitor] Buscando mensagens para chat_id:', chatId);
+    setIsLoadingMessages(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('❌ [Monitor] Erro ao buscar mensagens:', error);
+        throw error;
+      }
+
+      console.log('✅ [Monitor] Mensagens encontradas:', data?.length);
+      setActiveMessages(data || []);
+      scrollToBottom();
+    } catch (err) {
+      console.error('❌ [Monitor] Falha no fetch de mensagens:', err);
+      showToast('Erro ao carregar mensagens', 'error');
+    } finally {
+      setIsLoadingMessages(false);
+    }
   };
 
   // --- Actions ---
