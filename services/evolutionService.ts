@@ -49,14 +49,17 @@ export const createInstance = async (instanceName: string) => {
         })
     });
 
-    // Se der erro 403/409, provavelmente já existe. Apenas ignoramos e prosseguimos.
-    if (!res.ok && res.status !== 403 && res.status !== 409) {
+    // Se der erro 403/409, provavelmente já existe.
+    if (!res.ok) {
+        if (res.status === 403 || res.status === 409) {
+            return null; // Instância existe (sem QR na resposta de erro)
+        }
         const err = await res.json();
         throw new Error(err.message || "Falha ao criar instância");
     }
 
-    // Retorna true indicando que o processo seguiu (criou ou já existia)
-    return true;
+    // Retorna dados (pode incluir .qrcode se solicitado)
+    return await res.json();
 };
 
 // Tenta listar todas as instâncias (v2)

@@ -52,15 +52,9 @@ const Integrations: React.FC = () => {
       setInstanceName(data.instance_id);
       refreshStatus(data.instance_id);
     } else {
-      // 2. Fallback: Se não tem no banco, verifica .env (Igual ao Monitor.tsx)
-      const envInstance = import.meta.env.VITE_EVOLUTION_INSTANCE_NAME;
-      if (envInstance) {
-        console.log('Integrations: Usando Fallback .env', envInstance);
-        setInstanceName(envInstance);
-        refreshStatus(envInstance);
-      } else {
-        setStatus('not_found');
-      }
+      // 2. Fallback: REMOVIDO PARA ARQUITETURA SAAS
+      // Se não tem no banco, o usuário PRECISA conectar.
+      setStatus('not_found');
     }
   };
 
@@ -141,14 +135,18 @@ const Integrations: React.FC = () => {
       if (delErr) throw new Error('Falha ao limpar conexões antigas: ' + delErr.message);
 
       // 2. Cria na Evolution
-      await createInstance(inputName);
+      const creationData: any = await createInstance(inputName);
 
       // 3. Salva Ref no Banco
       const { error: upErr } = await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
       if (upErr) throw new Error('Falha ao salvar no banco: ' + upErr.message);
 
-      // 4. Inicia processo de QR
-      loadQR(inputName);
+      // 4. Inicia processo de QR (Otimizado)
+      if (creationData && (creationData.qrcode?.base64 || creationData.qrcode?.code || creationData.base64 || creationData.code)) {
+        setQrCode(creationData.qrcode?.base64 || creationData.qrcode?.code || creationData.base64 || creationData.code);
+      } else {
+        loadQR(inputName);
+      }
 
     } catch (err: any) {
       console.error(err);
