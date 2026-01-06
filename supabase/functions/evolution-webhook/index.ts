@@ -1,6 +1,5 @@
-// Supabase Edge Function - Evolution Webhook Handler (DEBUG VERSION)
-// This version logs EVERYTHING and tries to save any message
-
+// @ts-nocheck
+// VERSÃO ULTRA SIMPLIFICADA - SALVA TUDO QUE CHEGAR
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -10,7 +9,6 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-    // Handle CORS preflight
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
@@ -23,141 +21,125 @@ serve(async (req) => {
 
         const payload = await req.json()
 
-        // DEBUG: Log EVERYTHING
-        console.log('=================================')
-        console.log('📦 FULL PAYLOAD RECEIVED:')
-        console.log(JSON.stringify(payload, null, 2))
-        console.log('=================================')
+        console.log('📦 RAW PAYLOAD:', JSON.stringify(payload, null, 2))
 
-        // Try to extract event from multiple possible locations
-        const event = (payload.event || payload.action || payload.type || 'unknown').toString().toLowerCase()
-        console.log(`🎯 Detected event: ${event}`)
-
-        // Try to find message data in ANY location
+        // ESTRATÉGIA RADICAL: Tentar pegar mensagem de QUALQUER lugar
         let messageData = null
         let remoteJid = null
         let textContent = ''
-        let pushName = ''
-        let isFromMe = false
+        let pushName = 'Unknown'
 
-        // Strategy 1: payload.data.message (Evolution v2 standard)
-        if (payload.data?.message) {
-            messageData = payload.data.message
-            console.log('📍 Found message at: payload.data.message')
+        // Busca no payload.data (padrão Evolution v2)
+        if (payload.data) {
+            // Se data é array
+            if (Array.isArray(payload.data)) {
+                messageData = payload.data[0]
+            } else {
+                messageData = payload.data
+            }
         }
-        // Strategy 2: payload.data array (some versions send array)
-        else if (Array.isArray(payload.data) && payload.data.length > 0) {
-            messageData = payload.data[0]
-            console.log('📍 Found message at: payload.data[0]')
-        }
-        // Strategy 3: payload.message direct
-        else if (payload.message) {
-            messageData = payload.message
-            console.log('📍 Found message at: payload.message')
-        }
-        // Strategy 4: payload.data direct (if it has key)
-        else if (payload.data?.key) {
-            messageData = payload.data
-            console.log('📍 Found message at: payload.data (has key)')
-        }
+
+        console.log('� messageData found:', !!messageData)
 
         if (messageData) {
-            console.log('📨 Message data:', JSON.stringify(messageData, null, 2))
+            // Extrair remoteJid de QUALQUER lugar
+            remoteJid = messageData.key?.remoteJid ||
+                messageData.remoteJid ||
+                messageData.from ||
+                messageData.chatId ||
+                null
 
-            // Extract remoteJid
-            remoteJid = messageData.key?.remoteJid || messageData.remoteJid || messageData.from || null
-            console.log(`📞 RemoteJid: ${remoteJid}`)
+            console.log('📞 remoteJid:', remoteJid)
 
-            // Skip groups
-            if (remoteJid && (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast'))) {
-                console.log(`⏭️ Skipping group: ${remoteJid}`)
-                return new Response(JSON.stringify({ received: true, skipped: 'group' }), { headers: corsHeaders })
-            }
-
-            // Extract text
-            if (typeof messageData.message === 'string') {
-                textContent = messageData.message
-            } else if (messageData.message) {
-                textContent = messageData.message.conversation ||
-                    messageData.message.extendedTextMessage?.text ||
-                    messageData.message.imageMessage?.caption ||
-                    ''
-            } else if (messageData.content) {
-                textContent = messageData.content
-            } else if (messageData.text) {
-                textContent = messageData.text
-            }
-            console.log(`💬 Text content: "${textContent}"`)
-
-            // Extract sender info
-            pushName = messageData.pushName || messageData.key?.participant || (remoteJid ? remoteJid.split('@')[0] : 'Unknown')
-            isFromMe = messageData.key?.fromMe || messageData.fromMe || false
-            console.log(`👤 PushName: ${pushName}, FromMe: ${isFromMe}`)
-
-            // --- SAVE TO DATABASE ---
+            // Se tem remoteJid, tentar extrair texto
             if (remoteJid) {
-                console.log('💾 Attempting to save to database...')
-
-                // 1. Upsert chat
-                const { data: chatData, error: chatError } = await supabase
-                    .from('chats')
-                    .upsert({
-                        whatsapp_id: remoteJid,
-                        name: pushName,
-                        last_message_at: new Date().toISOString(),
-                        status: 'Ativo'
-                    }, { onConflict: 'whatsapp_id' })
-                    .select('id')
-                    .single()
-
-                if (chatError) {
-                    console.error('❌ Chat upsert error:', chatError)
-                    return new Response(JSON.stringify({ error: 'chat_upsert_failed', details: chatError }), {
-                        status: 500, headers: corsHeaders
-                    })
+                // Texto pode estar em vários lugares
+                if (messageData.message?.conversation) {
+                    textContent = messageData.message.conversation
+                } else if (messageData.message?.extendedTextMessage?.text) {
+                    textContent = messageData.message.extendedTextMessage.text
+                } else if (messageData.text) {
+                    textContent = messageData.text
+                } else if (messageData.content) {
+                    textContent = messageData.content
+                } else if (typeof messageData.message === 'string') {
+                    textContent = messageData.message
                 }
 
-                console.log(`✅ Chat saved/updated: ${chatData?.id}`)
+                // Nome do contato
+                pushName = messageData.pushName ||
+                    messageData.name ||
+                    (remoteJid ? remoteJid.split('@')[0] : 'Unknown')
 
-                // 2. Insert message
-                if (textContent && chatData?.id) {
-                    const { error: msgError } = await supabase
-                        .from('messages')
-                        .insert({
-                            chat_id: chatData.id,
-                            sender: isFromMe ? 'agent' : 'user',
-                            text: textContent,
-                            created_at: new Date().toISOString()
-                        })
+                console.log('💬 textContent:', textContent)
+                console.log('👤 pushName:', pushName)
 
-                    if (msgError) {
-                        console.error('❌ Message insert error:', msgError)
-                    } else {
-                        console.log('✅ Message saved!')
+                // SALVAR DIRETO - SEM FILTROS
+                if (remoteJid) {
+                    // 1. Criar/atualizar chat
+                    const { data: chatData, error: chatError } = await supabase
+                        .from('chats')
+                        .upsert({
+                            whatsapp_id: remoteJid,
+                            name: pushName,
+                            last_message_at: new Date().toISOString(),
+                            status: 'Ativo'
+                        }, { onConflict: 'whatsapp_id' })
+                        .select('id')
+                        .single()
+
+                    if (chatError) {
+                        console.error('❌ Chat error:', chatError)
+                        return new Response(JSON.stringify({
+                            error: 'chat_failed',
+                            details: chatError.message
+                        }), { status: 500, headers: corsHeaders })
                     }
-                }
 
-                return new Response(JSON.stringify({
-                    received: true,
-                    saved: true,
-                    chatId: chatData?.id,
-                    hasText: !!textContent
-                }), { headers: corsHeaders })
+                    console.log('✅ Chat upserted:', chatData.id)
+
+                    // 2. Se tiver texto, inserir mensagem
+                    if (textContent && chatData?.id) {
+                        const isFromMe = messageData.key?.fromMe || messageData.fromMe || false
+
+                        const { error: msgError } = await supabase
+                            .from('messages')
+                            .insert({
+                                chat_id: chatData.id,
+                                sender: isFromMe ? 'agent' : 'user',
+                                text: textContent
+                            })
+
+                        if (msgError) {
+                            console.error('❌ Message error:', msgError)
+                        } else {
+                            console.log('✅ Message inserted!')
+                        }
+                    } else {
+                        console.log('⚠️ No text content to save')
+                    }
+
+                    return new Response(JSON.stringify({
+                        success: true,
+                        chatId: chatData.id,
+                        hasText: !!textContent
+                    }), { headers: corsHeaders })
+                }
+            } else {
+                console.log('⚠️ No remoteJid found')
             }
         } else {
-            console.log('⚠️ No message data found in payload')
+            console.log('⚠️ No message data found')
         }
 
-        // If we get here, we received something but couldn't process it
         return new Response(JSON.stringify({
             received: true,
             processed: false,
-            event: event,
-            reason: 'no_message_data_found'
+            reason: 'no_message_or_jid'
         }), { headers: corsHeaders })
 
     } catch (error) {
-        console.error('❌ Webhook error:', error)
+        console.error('❌ Error:', error)
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500, headers: corsHeaders
         })

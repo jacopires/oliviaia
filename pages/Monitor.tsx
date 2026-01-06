@@ -47,6 +47,7 @@ const Monitor: React.FC = () => {
   // Sync removido - sistema 100% sob demanda
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
 
   // Edição de Perfil
@@ -239,6 +240,43 @@ const Monitor: React.FC = () => {
     }
   };
 
+  // Sincronizar perfis (nomes e fotos) de todos os chats
+  const syncAllProfiles = async () => {
+    if (!instanceName) {
+      showToast('Instância não conectada', 'error');
+      return;
+    }
+
+    setIsSyncingProfiles(true);
+    console.log('🔄 [Monitor] Iniciando sincronização de perfis...');
+
+    try {
+      let updated = 0;
+
+      for (const chat of chats) {
+        try {
+          const result = await updateChatProfile(instanceName, chat.id, chat.whatsapp_id);
+          if (result.success) {
+            updated++;
+            console.log(`✅ Perfil atualizado: ${chat.whatsapp_id}`);
+          }
+          // Pequeno delay para não sobrecarregar a API
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (err) {
+          console.error(`❌ Erro ao atualizar ${chat.whatsapp_id}:`, err);
+        }
+      }
+
+      showToast(`${updated} perfis atualizados!`, 'success');
+      fetchChats(); // Recarrega a lista
+    } catch (err) {
+      console.error('❌ Erro na sincronização:', err);
+      showToast('Erro ao sincronizar perfis', 'error');
+    } finally {
+      setIsSyncingProfiles(false);
+    }
+  };
+
   // --- Actions ---
 
   const handleSendMessage = async () => {
@@ -311,7 +349,14 @@ const Monitor: React.FC = () => {
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <MessageSquare className="text-primary" size={20} /> Conversas
             </h2>
-            {/* Botão de sync removido - sistema sob demanda */}
+            <button
+              onClick={syncAllProfiles}
+              disabled={isSyncingProfiles || !instanceName}
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Sincronizar nomes e fotos"
+            >
+              <RefreshCw className={`w-5 h-5 text-gray-400 hover:text-primary transition-colors ${isSyncingProfiles ? 'animate-spin' : ''}`} />
+            </button>
           </div>
           <div className="relative group">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary group-focus-within:text-primary transition-colors" />
