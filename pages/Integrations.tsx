@@ -1,226 +1,428 @@
-
 import React, { useState, useEffect } from 'react';
-import Header from '../components/Header';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  MessageCircle, Calendar, Mail, Search,
+  CheckCircle, AlertCircle, RefreshCw, Server, X, Wifi
+} from 'lucide-react';
+import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance } from '../services/evolutionService';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 
-interface WhatsAppInstance {
-  id: string;
-  instance_name: string;
-  instance_id: string;
-  status: string;
-  phone: string | null;
-}
+// Mock de Logs para visualização
+const MOCK_LOGS = [
+  { id: 1, integration: 'WhatsApp', event: 'Sincronização de mensagens', status: 'success', time: 'Agora mesmo' },
+  { id: 2, integration: 'HubSpot', event: 'Lead atualizado', status: 'success', time: '5 min atrás' },
+  { id: 3, integration: 'SMTP', event: 'Falha no envio de relatório', status: 'error', time: '2h atrás' },
+];
 
 const Integrations: React.FC = () => {
-  const [instances, setInstances] = useState<WhatsAppInstance[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [instanceName, setInstanceName] = useState<string | null>(null);
+  const [status, setStatus] = useState<'loading' | 'close' | 'connecting' | 'open' | 'not_found'>('loading');
+  const [qrCode, setQrCode] = useState<string | null>(null);
+
+  // Modal Controls
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newInstanceName, setNewInstanceName] = useState('');
-  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
-  const [connectingInstanceId, setConnectingInstanceId] = useState<string | null>(null);
+  const [inputName, setInputName] = useState('');
+  const [isLoadingAction, setIsLoadingAction] = useState(false);
+  const [connectionStep, setConnectionStep] = useState<'input' | 'qr' | 'success' | 'error'>('input');
+
   const { showToast } = useToast();
 
-  // Limit Logic (Mocked for now, assuming Starter = 1 free, others paid)
-  const FREE_LIMIT = 1;
-
+  // 1. Check Inicial
   useEffect(() => {
-    fetchInstances();
+    checkSavedInstance();
   }, []);
 
-  const fetchInstances = async () => {
-    const { data } = await supabase.from('integrations_whatsapp').select('*');
-    if (data) setInstances(data);
+  const checkSavedInstance = async () => {
+    const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
+    if (data?.instance_id) {
+      setInstanceName(data.instance_id);
+      refreshStatus(data.instance_id);
+    } else {
+      setStatus('not_found');
+    }
+  };
+
+  // Polling Inteligente
+  useEffect(() => {
+    let interval: any;
+    // Só faz polling se o modal estiver aberto na etapa de QR ou se estivermos monitorando conexão
+    if ((isModalOpen && connectionStep === 'qr') || status === 'connecting') {
+      const targetName = instanceName || inputName;
+      if (targetName) {
+        interval = setInterval(() => refreshStatus(targetName, true), 3000);
+      }
+    }
+    return () => clearInterval(interval);
+  }, [isModalOpen, connectionStep, status, instanceName, inputName]);
+
+  const refreshStatus = async (name: string, silent = false) => {
+    if (!silent) setStatus('loading');
+    try {
+      const s = await fetchInstanceStatus(name);
+
+      if (s === 'open') {
+        setStatus('open');
+        setInstanceName(name);
+
+        // SE O MODAL ESTIVER ABERTO -> MOSTRA SUCESSO
+        if (isModalOpen && connectionStep !== 'success') {
+          setConnectionStep('success');
+          showToast('Dispositivo conectado com sucesso!', 'success');
+          setTimeout(() => {
+            setIsModalOpen(false);
+            setConnectionStep('input'); // Reset para próxima vez
+          }, 2500);
+        }
+      } else if (s === 'close') {
+        setStatus('close');
+        // Se caiu a conexão e não estamos no modal, avisa
+        if (status === 'open' && !isModalOpen) {
+          showToast('A conexão com o WhatsApp foi perdida.', 'error');
+        }
+        // Se está no modal esperando, garante o QR
+        if (isModalOpen && connectionStep === 'qr' && !qrCode) {
+          loadQR(name);
+        }
+      } else {
+        setStatus('not_found');
+      }
+    } catch (error) {
+      console.error("Erro no polling", error);
+    }
+  };
+
+  const loadQR = async (name: string) => {
+    try {
+      const qr = await fetchQRCode(name);
+      if (qr) setQrCode(qr);
+    } catch (e) {
+      console.error(e);
+      if (isModalOpen) setConnectionStep('error');
+    }
   };
 
   const handleConnect = async () => {
-    setLoading(true);
+    if (!inputName.trim()) return showToast('Defina um nome para a instância', 'error');
+    setIsLoadingAction(true);
+    setConnectionStep('qr'); // Muda para tela de QR
+    setQrCode(null); // Limpa QR antigo
+
     try {
-      // 1. Create Instance via Edge Function
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'create-instance', instanceName: newInstanceName }
-      });
+      // 1. Cria ou recupera
+      await createInstance(inputName);
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      // 2. Salva Ref no Banco
+      await supabase.from('integrations_whatsapp').upsert({ instance_id: inputName, status: 'created' }, { onConflict: 'instance_id' });
 
-      const { instanceId } = data;
-      setConnectingInstanceId(instanceId);
-
-      showToast('Instância criada com sucesso! Gerando QR Code...', 'info');
-
-      // 2. Fetch QR Code immediately
-      await fetchQrCode(instanceId);
-
-      // Refresh list
-      fetchInstances();
+      // 3. Inicia processo de QR
+      loadQR(inputName);
 
     } catch (err: any) {
-      console.error(err);
-      showToast('Erro ao criar instância: ' + (err.message || 'Falha desconhecida'), 'error');
+      setConnectionStep('error');
+      showToast('Erro ao criar instância: ' + err.message, 'error');
     } finally {
-      setLoading(false);
+      setIsLoadingAction(false);
     }
   };
 
-  const fetchQrCode = async (instanceId: string) => {
+  const handleDisconnect = async () => {
+    if (!instanceName) return;
+    if (!confirm('Tem certeza? Isso irá parar a automação.')) return;
+
+    setIsLoadingAction(true);
     try {
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'get-qrcode', instanceId }
-      });
-
-      if (error) throw error;
-
-      if (data?.base64) {
-        setQrCodeData(data.base64);
-      } else if (data?.code) {
-        // Evolution sometimes returns 'code' ? Adjust based on response inspection if needed
-        setQrCodeData(data.code);
-      }
-
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  const handleDelete = async (instanceId: string) => {
-    if (!confirm('Tem certeza? Isso irá desconectar o WhatsApp.')) return;
-    setLoading(true);
-    try {
-      const { error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'delete-instance', instanceId }
-      });
-      if (error) throw error;
-      showToast('Instância removida com sucesso.', 'success');
-      fetchInstances();
-    } catch (err) {
-      showToast('Erro ao deletar instância.', 'error');
+      await logoutInstance(instanceName);
+      await supabase.from('integrations_whatsapp').delete().eq('instance_id', instanceName);
+      setInstanceName(null);
+      setQrCode(null);
+      setStatus('not_found');
+      setInputName('');
+      showToast('Desconectado com sucesso.', 'success');
+    } catch (e) {
+      showToast('Erro ao desconectar', 'error');
     } finally {
-      setLoading(false);
+      setIsLoadingAction(false);
     }
-  }
+  };
 
-
-  return (
-    <div className="p-10 max-w-6xl mx-auto flex flex-col gap-8 text-white">
-      <Header
-        title="Integrações da Plataforma"
-        subtitle="Gerencie as conexões dos seus agentes de IA com CRMs e mensageiros."
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {/* WhatsApp Card */}
-        <div className={`flex flex-col rounded-xl bg-surface-dark border p-5 gap-5 group relative overflow-hidden transition-all border-primary/20 hover:border-primary/50`}>
-          <div className="flex items-start justify-between z-10">
-            <div className="size-12 rounded-lg flex items-center justify-center border bg-[#25D366]/20 border-[#25D366]/20 text-[#25D366]">
-              <span className="material-symbols-outlined text-3xl">chat</span>
+  // RENDERIZAÇÃO DO MODAL (Nova Lógica Visual)
+  const renderModalContent = () => {
+    switch (connectionStep) {
+      case 'input':
+        return (
+          <div className="text-center">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 text-primary">
+              <Server size={32} />
             </div>
-            <div className="px-2.5 py-1 rounded-full border text-xs font-bold uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
-              {instances.length > 0 ? `${instances.length} Conectado(s)` : 'Disponível'}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1 z-10">
-            <h3 className="text-white text-lg font-display font-bold">WhatsApp Business</h3>
-            <p className="text-text-secondary text-sm leading-relaxed">Conecte seus números via QR Code (Evolution API).</p>
-          </div>
-
-          {/* Instance List */}
-          <div className="flex flex-col gap-2 mt-2">
-            {instances.map(inst => (
-              <div key={inst.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg border border-white/5">
-                <span className="text-xs font-mono">{inst.instance_name}</span>
-                <button onClick={() => handleDelete(inst.instance_id)} className="text-red-400 hover:text-red-300">
-                  <span className="material-symbols-outlined text-sm">delete</span>
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="pt-4 border-t border-white/5 mt-auto flex items-center justify-end z-10">
+            <h3 className="text-2xl font-bold text-white mb-2">Nova Conexão</h3>
+            <p className="text-gray-400 mb-6">Dê um nome para identificar este WhatsApp (ex: Atendimento).</p>
+            <input
+              autoFocus
+              value={inputName}
+              onChange={e => setInputName(e.target.value.replace(/\s/g, '').toLowerCase())}
+              placeholder="nome-da-instancia"
+              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white mb-6 text-center font-mono focus:border-primary outline-none"
+              onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+            />
             <button
-              onClick={() => setIsModalOpen(true)}
-              className="h-9 px-4 rounded-lg font-bold text-sm bg-primary/10 text-primary hover:bg-primary/20 transition-all border border-primary/20"
+              onClick={handleConnect}
+              disabled={isLoadingAction}
+              className="w-full py-3 bg-primary hover:bg-emerald-400 text-black font-bold rounded-xl transition-all flex justify-center gap-2 items-center disabled:opacity-50"
             >
-              {instances.length >= FREE_LIMIT ? 'Nova Instância (+R$ 20)' : 'Conectar Novo'}
+              {isLoadingAction ? <RefreshCw className="animate-spin" /> : 'Gerar QR Code'}
             </button>
           </div>
-        </div>
+        );
 
-        {/* Other Placeholders (HubSpot, Google, Salesforce) - Static for now */}
-        {/* HubSpot */}
-        <div className="flex flex-col rounded-xl bg-surface-dark border border-white/5 p-5 gap-5 group relative overflow-hidden opacity-70">
-          <div className="flex items-start justify-between z-10">
-            <div className="size-12 rounded-lg flex items-center justify-center border bg-[#FF7A59]/20 border-[#FF7A59]/20 text-[#FF7A59]">
-              <span className="material-symbols-outlined text-3xl">hub</span>
-            </div>
-          </div>
-          <div>
-            <h3 className="text-white text-lg font-display font-bold">HubSpot CRM</h3>
-            <p className="text-text-secondary text-sm leading-relaxed">Sincronização de contatos (Em breve).</p>
-          </div>
-          <div className="pt-4 border-t border-white/5 mt-auto flex items-center justify-end z-10">
-            <button disabled className="h-9 px-4 rounded-lg font-bold text-sm bg-transparent border border-white/10 text-gray-500 cursor-not-allowed">Em Breve</button>
-          </div>
-        </div>
-      </div>
+      case 'qr':
+        return (
+          <div className="flex flex-col items-center text-center">
+            <h3 className="text-xl font-bold text-white mb-2">Escaneie o QR Code</h3>
+            <p className="text-gray-400 mb-6 text-sm">Abra o WhatsApp → Configurações → Aparelhos Conectados</p>
 
-      {/* Connection Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface-dark border border-white/10 rounded-2xl w-full max-w-md p-6 flex flex-col gap-6 shadow-2xl relative">
-            <button onClick={() => { setIsModalOpen(false); setQrCodeData(null); }} className="absolute top-4 right-4 text-gray-400 hover:text-white">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-white">Conectar WhatsApp</h3>
-              <p className="text-gray-400 text-sm mt-1">Escaneie o QR Code com seu celular.</p>
-            </div>
-
-            {!qrCodeData ? (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2 text-left">
-                  <label className="text-xs uppercase font-bold text-gray-500">Nome da Instância (Identificação)</label>
-                  <input
-                    value={newInstanceName}
-                    onChange={e => setNewInstanceName(e.target.value)}
-                    placeholder="Ex: Vendas 01"
-                    className="bg-background-dark border border-white/10 rounded-lg p-3 text-white focus:border-primary outline-none"
-                  />
-                  {instances.length >= FREE_LIMIT && (
-                    <p className="text-xs text-yellow-400 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-sm">warning</span>
-                      Custo adicional: R$ 20,00/mês
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={handleConnect}
-                  disabled={loading || !newInstanceName}
-                  className="w-full py-3 bg-primary text-background-dark font-bold rounded-xl hover:bg-green-400 transition-all disabled:opacity-50"
-                >
-                  {loading ? 'Gerando QR Code...' : 'Gerar QR Code'}
-                </button>
+            {qrCode ? (
+              <div className="bg-white p-3 rounded-xl relative group mb-6 shadow-2xl shadow-emerald-500/10">
+                <img src={qrCode} className="w-64 h-64 object-contain" alt="QR Code" />
+                {/* Scan Line Animation */}
+                <div className="absolute top-3 left-3 right-3 h-0.5 bg-emerald-500 animate-[scan_2.5s_ease-in-out_infinite] shadow-[0_0_15px_rgba(16,185,129,1)]" />
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-4 animate-in fade-in">
-                <div className="p-4 bg-white rounded-xl">
-                  <img src={qrCodeData} alt="QR Code" className="w-64 h-64" />
-                </div>
-                <p className="text-xs text-center text-gray-400 max-w-xs">
-                  Abra o WhatsApp {'>'} Configurações {'>'} Aparelhos Conectados {'>'} Conectar Aparelho
-                </p>
-                <button
-                  onClick={() => { setIsModalOpen(false); setQrCodeData(null); fetchInstances(); }}
-                  className="text-primary text-sm font-bold hover:underline"
-                >
-                  Concluir e Fechar
-                </button>
+              <div className="w-64 h-64 bg-white/5 rounded-xl flex items-center justify-center mb-6 animate-pulse border border-white/10">
+                <RefreshCw className="animate-spin text-gray-500" size={32} />
               </div>
             )}
+
+            <div className="flex items-center gap-2 text-xs text-gray-500 animate-pulse">
+              <Wifi size={12} /> Aguardando conexão...
+            </div>
+          </div>
+        );
+
+      case 'success':
+        return (
+          <div className="flex flex-col items-center text-center py-8">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 200, damping: 15 }}
+              className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_50px_-10px_rgba(16,185,129,0.5)]"
+            >
+              <CheckCircle size={48} className="text-white" />
+            </motion.div>
+            <h3 className="text-2xl font-bold text-white mb-2">Conectado!</h3>
+            <p className="text-emerald-400">Sua instância está ativa e pronta.</p>
+          </div>
+        );
+
+      case 'error':
+        return (
+          <div className="text-center py-4">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-white mb-2">Falha na Conexão</h3>
+            <p className="text-gray-400 mb-6">Não foi possível gerar o QR Code ou conectar.</p>
+            <button
+              onClick={() => {
+                setConnectionStep('input');
+                setInputName('');
+                setQrCode(null);
+              }}
+              className="px-6 py-2 bg-primary/10 border border-primary/30 text-primary rounded-lg hover:bg-primary/20 transition-all"
+            >
+              Tentar Novamente
+            </button>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-background-dark p-6 lg:p-10 pb-32">
+      <div className="max-w-7xl mx-auto space-y-10">
+
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-bold text-white tracking-tight">Integrações</h1>
+            <p className="text-gray-400 mt-2 text-lg">Gerencie a conexão da Olivia IA com seus canais de comunicação.</p>
+          </div>
+          <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-medium text-white transition-colors">
+            Ver Documentação
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col md:flex-row justify-between gap-4 sticky top-0 z-20 bg-background-dark/80 backdrop-blur-xl py-4 border-b border-white/5">
+          <div className="relative w-full md:w-96 group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-primary transition-colors" size={18} />
+            <input
+              placeholder="Buscar integração..."
+              className="w-full bg-black/20 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-white focus:border-primary/50 outline-none transition-all"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button className="px-4 py-1.5 rounded-full bg-primary/20 text-primary border border-primary/20 text-sm font-bold">Todos</button>
+            <button className="px-4 py-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white border border-white/5 hover:border-white/10 text-sm font-medium transition-colors">CRM</button>
+            <button className="px-4 py-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white border border-white/5 hover:border-white/10 text-sm font-medium transition-colors">Mensageria</button>
           </div>
         </div>
-      )}
+
+        {/* CARDS GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+
+          {/* --- WHATSAPP CARD (ACTIVE) --- */}
+          <div className={`relative group overflow-hidden rounded-2xl border p-6 transition-all ${status === 'open' ? 'bg-emerald-500/5 border-emerald-500/30 shadow-[0_0_30px_-10px_rgba(16,185,129,0.3)]' : 'bg-surface-dark border-white/5 hover:border-white/10'}`}>
+            {status === 'open' && <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-bl-full -mr-8 -mt-8 pointer-events-none" />}
+
+            <div className="flex justify-between items-start mb-6">
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl border ${status === 'open' ? 'bg-[#25D366]/20 text-[#25D366] border-[#25D366]/20' : 'bg-white/5 text-gray-400 border-white/10'}`}>
+                <MessageCircle size={28} />
+              </div>
+
+              {/* Badge de Status Melhorado */}
+              {status === 'open' ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Online</span>
+                </div>
+              ) : (
+                <div className="px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider flex items-center gap-2 bg-white/5 text-gray-500 border-white/10">
+                  <div className="w-2 h-2 rounded-full bg-gray-500" />
+                  Disponível
+                </div>
+              )}
+            </div>
+
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-white mb-2">WhatsApp Business</h3>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                {status === 'open'
+                  ? <>Instância <span className="text-emerald-400 font-mono font-semibold">"{instanceName}"</span> ativa. Olivia está processando mensagens.</>
+                  : 'Conecte seu número para permitir que a IA trie leads automaticamente.'}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between pt-6 border-t border-white/5">
+              <span className="text-xs font-mono text-gray-500">v2.0 Evolution</span>
+              {status === 'open' ? (
+                <button
+                  onClick={handleDisconnect}
+                  disabled={isLoadingAction}
+                  className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors border border-red-500/20 disabled:opacity-50"
+                >
+                  {isLoadingAction ? '...' : 'Desconectar'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="px-4 py-2 bg-primary hover:bg-emerald-400 text-black text-sm font-bold rounded-lg transition-all shadow-lg shadow-emerald-500/10"
+                >
+                  Conectar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* --- MOCK CARDS (HubSpot, Calendar, etc) --- */}
+          {[
+            { title: 'HubSpot CRM', icon: <Server size={28} />, color: 'text-[#FF7A59]', desc: 'Sincronização de contatos e deals.' },
+            { title: 'Google Calendar', icon: <Calendar size={28} />, color: 'text-blue-500', desc: 'Agendamento automático de reuniões.' },
+            { title: 'RD Station', icon: <Mail size={28} />, color: 'text-indigo-400', desc: 'Automação de marketing e nutrição.' },
+          ].map((item, idx) => (
+            <div key={idx} className="rounded-2xl bg-surface-dark border border-white/5 p-6 opacity-60 hover:opacity-100 transition-opacity cursor-not-allowed">
+              <div className="flex justify-between items-start mb-6">
+                <div className={`w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center ${item.color}`}>
+                  {item.icon}
+                </div>
+                <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-bold text-gray-500 uppercase">Em Breve</div>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{item.title}</h3>
+              <p className="text-sm text-gray-400">{item.desc}</p>
+            </div>
+          ))}
+
+        </div>
+
+        {/* LOGS TABLE */}
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-white">Atividade Recente</h2>
+            <button className="text-primary text-sm hover:underline">Ver todos</button>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-surface-dark/50">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-white/5 text-xs uppercase text-gray-400">
+                <tr>
+                  <th className="px-6 py-4 font-medium">Integração</th>
+                  <th className="px-6 py-4 font-medium">Evento</th>
+                  <th className="px-6 py-4 font-medium">Status</th>
+                  <th className="px-6 py-4 font-medium text-right">Horário</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-gray-300">
+                {MOCK_LOGS.map(log => (
+                  <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-6 py-4 font-medium flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${log.integration === 'WhatsApp' ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                      {log.integration}
+                    </td>
+                    <td className="px-6 py-4">{log.event}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded-md text-xs font-bold ${log.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                        {log.status === 'success' ? 'Sucesso' : 'Falha'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right font-mono text-xs text-gray-500">{log.time}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      {/* --- MODAL DE CONEXÃO --- */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => connectionStep === 'input' && setIsModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#121212] border border-white/10 rounded-2xl p-8 w-full max-w-md relative z-10 shadow-2xl"
+            >
+              {/* Botão fechar (Esconde no sucesso para evitar quebra de fluxo visual) */}
+              {connectionStep !== 'success' && (
+                <button
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setConnectionStep('input');
+                    setInputName('');
+                    setQrCode(null);
+                  }}
+                  className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              )}
+
+              {renderModalContent()}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
