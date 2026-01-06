@@ -119,6 +119,12 @@ const Integrations: React.FC = () => {
     setConnectionStep('qr');
     setQrCode(null);
 
+    // Se já é a mesma instância salva e estamos apenas reconectando
+    if (instanceName && inputName === instanceName) {
+      handleConnectExisting(inputName);
+      return;
+    }
+
     try {
       // 1. Limpa anteriores (Garante Single Instance como regra de negócio atual)
       await supabase.from('integrations_whatsapp').delete().neq('instance_id', 'PLACEHOLDER_NEVER_MATCH');
@@ -209,7 +215,9 @@ const Integrations: React.FC = () => {
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 text-primary">
               <Server size={32} />
             </div>
-            <h3 className="text-2xl font-bold text-white mb-2">Nova Conexão</h3>
+            <h3 className="text-2xl font-bold text-white mb-2">
+              {instanceName && inputName === instanceName ? `Reconectar ${instanceName}` : 'Nova Conexão'}
+            </h3>
 
             {/* LISTA DE INSTÂNCIAS DESCOBERTAS */}
             {discoveredInstances.length > 0 && (
@@ -367,6 +375,11 @@ const Integrations: React.FC = () => {
                   </span>
                   <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Online</span>
                 </div>
+              ) : instanceName ? (
+                <div className="px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider flex items-center gap-2 bg-red-500/10 text-red-400 border-red-500/20">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  Desconectado
+                </div>
               ) : (
                 <div className="px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider flex items-center gap-2 bg-white/5 text-gray-500 border-white/10">
                   <div className="w-2 h-2 rounded-full bg-gray-500" />
@@ -396,10 +409,13 @@ const Integrations: React.FC = () => {
                 </button>
               ) : (
                 <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="px-4 py-2 bg-primary hover:bg-emerald-400 text-black text-sm font-bold rounded-lg transition-all shadow-lg shadow-emerald-500/10"
+                  onClick={() => {
+                    if (instanceName) setInputName(instanceName);
+                    setIsModalOpen(true);
+                  }}
+                  className={`px-4 py-2 text-sm font-bold rounded-lg transition-all shadow-lg ${instanceName ? 'bg-orange-500 hover:bg-orange-400 text-black shadow-orange-500/10' : 'bg-primary hover:bg-emerald-400 text-black shadow-emerald-500/10'}`}
                 >
-                  Conectar
+                  {instanceName ? 'Reconectar' : 'Conectar'}
                 </button>
               )}
             </div>
