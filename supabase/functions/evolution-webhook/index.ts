@@ -51,7 +51,18 @@ serve(async (req) => {
 
             console.log('📞 remoteJid:', remoteJid)
 
-            // FILTRO: Ignorar grupos, broadcasts e newsletters
+            // FILTRO 1: Validar formato do remoteJid
+            // Deve conter @ para ser válido (ex: 5511999999999@s.whatsapp.net)
+            // Se for apenas números, é provável que seja um lid ou ID inválido
+            if (remoteJid && !remoteJid.includes('@')) {
+                console.log('⏭️ Ignorando ID numérico sem @:', remoteJid)
+                return new Response(JSON.stringify({
+                    received: true,
+                    skipped: 'invalid_id_format'
+                }), { headers: corsHeaders })
+            }
+
+            // FILTRO 2: Ignorar grupos, broadcasts e newsletters
             if (remoteJid && (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter'))) {
                 console.log('⏭️ Ignorando grupo/broadcast:', remoteJid)
                 return new Response(JSON.stringify({
