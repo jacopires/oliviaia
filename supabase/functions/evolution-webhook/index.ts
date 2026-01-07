@@ -90,9 +90,9 @@ serve(async (req) => {
                 console.log('💬 textContent:', textContent)
                 console.log('👤 pushName:', pushName)
 
-                // SALVAR DIRETO - SEM FILTROS
+                // SALVAR DIRETO - Apenas nome e timestamp
                 if (remoteJid) {
-                    // 1. Criar/atualizar chat
+                    // 1. Criar/atualizar chat (SEM avatar para evitar sobrescrever)
                     const { data: chatData, error: chatError } = await supabase
                         .from('chats')
                         .upsert({
@@ -100,6 +100,7 @@ serve(async (req) => {
                             name: pushName,
                             last_message_at: new Date().toISOString(),
                             status: 'Ativo'
+                            // avatar_url: removido para evitar trocas incorretas
                         }, { onConflict: 'whatsapp_id' })
                         .select('id')
                         .single()

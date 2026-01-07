@@ -245,8 +245,11 @@ export const updateChatProfile = async (instanceName: string, chatId: string, re
             headers: getHeaders(),
             body: JSON.stringify({ number: remoteJid })
         });
+        
         const dataPic = await resPic.json().catch(() => ({}));
         const avatarUrl = dataPic.profilePictureUrl || dataPic.url || null;
+        
+        console.log(`📸 [Evolution] Avatar para ${remoteJid}:`, avatarUrl ? 'URL encontrada' : 'Sem foto');
 
         // 2. Busca Nome
         const resName = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfile/${instanceName}`, {
@@ -256,16 +259,23 @@ export const updateChatProfile = async (instanceName: string, chatId: string, re
         });
         const dataName = await resName.json().catch(() => ({}));
         const name = dataName.name || dataName.pushName || dataName.notify || null;
+        
+        console.log(`👤 [Evolution] Nome para ${remoteJid}:`, name || 'Não encontrado');
 
         // 3. Atualiza Banco
         const updates: any = {};
-        if (avatarUrl) updates.avatar_url = avatarUrl;
+        
+        // Sempre atualizar avatar (mesmo que seja null para limpar fotos incorretas)
+        updates.avatar_url = avatarUrl;
 
         // Se achou nome e no banco é só o número, atualiza
         if (name) updates.name = name;
 
         if (Object.keys(updates).length > 0) {
-            await supabase.from('chats').update(updates).eq('id', chatId);
+            const { error } = await supabase.from('chats').update(updates).eq('id', chatId);
+            if (error) {
+                console.error(`❌ [Evolution] Erro ao atualizar DB:`, error);
+            }
         }
 
         return { success: true, name, avatar: avatarUrl };
