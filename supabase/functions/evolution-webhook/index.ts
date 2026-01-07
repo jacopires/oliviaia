@@ -75,10 +75,17 @@ serve(async (req) => {
                     textContent = messageData.message
                 }
 
-                // Nome do contato
+                // Nome do contato - NÃO usar número como fallback
                 pushName = messageData.pushName ||
                     messageData.name ||
-                    (remoteJid ? remoteJid.split('@')[0] : 'Unknown')
+                    messageData.notifyName ||
+                    messageData.verifiedName ||
+                    'Contato sem nome'
+
+                // Se o "nome" for só números ou contiver ':', substituir por fallback
+                if (/^\d+$/.test(pushName) || pushName.includes(':') || pushName.includes('@')) {
+                    pushName = 'Contato sem nome'
+                }
 
                 console.log('💬 textContent:', textContent)
                 console.log('👤 pushName:', pushName)
