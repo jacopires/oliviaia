@@ -54,8 +54,9 @@ serve(async (req) => {
             // FILTRO 1: Validar formato do remoteJid
             // Deve conter @ para ser válido (ex: 5511999999999@s.whatsapp.net)
             // Se for apenas números, é provável que seja um lid ou ID inválido
-            if (remoteJid && !remoteJid.includes('@')) {
-                console.log('⏭️ Ignorando ID numérico sem @:', remoteJid)
+            // @lid = Local ID (não é um contato real do WhatsApp)
+            if (remoteJid && (!remoteJid.includes('@') || remoteJid.includes('@lid'))) {
+                console.log('⏭️ Ignorando ID numérico ou lid:', remoteJid)
                 return new Response(JSON.stringify({
                     received: true,
                     skipped: 'invalid_id_format'
