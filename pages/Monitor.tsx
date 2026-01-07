@@ -134,13 +134,24 @@ const Monitor: React.FC = () => {
 
   // 2. Realtime para Chats
   useEffect(() => {
+    let fetchTimeout: NodeJS.Timeout | null = null;
+
     const chatSub = supabase.channel('monitor_chats')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
-        console.log('⚡ [Monitor] Realtime chats:', payload);
-        fetchChats();
+        console.log('⚡ [Monitor] Realtime chats:', payload.eventType);
+
+        // Debounce: aguardar 500ms antes de recarregar para agrupar múltiplos eventos
+        if (fetchTimeout) clearTimeout(fetchTimeout);
+        fetchTimeout = setTimeout(() => {
+          fetchChats();
+        }, 500);
       })
       .subscribe();
-    return () => { supabase.removeChannel(chatSub); };
+
+    return () => {
+      if (fetchTimeout) clearTimeout(fetchTimeout);
+      supabase.removeChannel(chatSub);
+    };
   }, []);
 
   // 3. Realtime para Mensagens (filtrado por chat ativo)
