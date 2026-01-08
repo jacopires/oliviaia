@@ -73,14 +73,18 @@ serve(async (req) => {
                 }), { headers: corsHeaders })
             }
 
-            // FILTRO 2: Ignorar grupos, broadcasts e newsletters
-            if (remoteJid && (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter'))) {
-                console.log('⏭️ Ignorando grupo/broadcast:', remoteJid)
+            // FILTRO 2: Ignorar broadcasts e newsletters (grupos são permitidos)
+            if (remoteJid && (remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter'))) {
+                console.log('⏭️ Ignorando broadcast/newsletter:', remoteJid)
                 return new Response(JSON.stringify({
                     received: true,
-                    skipped: 'group_or_broadcast'
+                    skipped: 'broadcast_or_newsletter'
                 }), { headers: corsHeaders })
             }
+
+            // Detectar tipo de chat
+            const chatType = remoteJid && remoteJid.includes('@g.us') ? 'group' : 'individual'
+            console.log('📋 Tipo de chat:', chatType)
 
             // Se tem remoteJid, tentar extrair texto
             if (remoteJid) {
@@ -130,7 +134,8 @@ serve(async (req) => {
                             .from('chats')
                             .update({
                                 last_message_at: new Date().toISOString(),
-                                status: 'Ativo'
+                                status: 'Ativo',
+                                type: chatType
                             })
                             .eq('whatsapp_id', remoteJid)
                             .select('id')
@@ -153,7 +158,8 @@ serve(async (req) => {
                                 whatsapp_id: remoteJid,
                                 name: pushName,
                                 last_message_at: new Date().toISOString(),
-                                status: 'Ativo'
+                                status: 'Ativo',
+                                type: chatType
                             })
                             .select('id')
                             .single()
