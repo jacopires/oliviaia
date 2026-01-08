@@ -5,6 +5,7 @@ import { useToast } from '../components/ToastProvider';
 import {
   updateChatProfile,
   sendTextMessage,
+  sendTyping,
   syncMessages,
   fetchInstanceStatus,
   configureWebhook,
@@ -317,6 +318,12 @@ const Monitor: React.FC = () => {
     scrollToBottom();
 
     try {
+      // Enviar indicador de digitação primeiro
+      await sendTyping(instanceName, chat.whatsapp_id);
+
+      // Pequeno delay para dar tempo do typing aparecer
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       await sendTextMessage(instanceName, chat.whatsapp_id, textToSend);
 
       // Inserir no banco (Realtime vai substituir a mensagem otimista)

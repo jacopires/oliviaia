@@ -194,6 +194,47 @@ export const logoutInstance = async (instanceName: string) => {
 };
 
 /**
+ * Envia presença de digitação (typing indicator)
+ */
+export const sendTyping = async (instanceName: string, remoteJid: string) => {
+    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+        console.error("❌ ERRO CRÍTICO: Credenciais .env ausentes!");
+        throw new Error("Configuração .env incompleta");
+    }
+
+    const cleanJid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+
+    const url = `${EVOLUTION_API_URL}/chat/sendPresence/${instanceName}`;
+    const body = {
+        number: cleanJid,
+        presence: 'composing', // 'composing' = digitando, 'available' = online
+        delay: 1200 // Duração do indicador
+    };
+
+    console.log(`⌨️  [Typing] Enviando presença de digitação para: ${cleanJid}`);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            console.warn(`⚠️ [Typing] Erro ao enviar typing (${response.status}) - continuando mesmo assim`);
+            return null;
+        }
+
+        const data = await response.json();
+        console.log(`✅ [Typing] Indicador enviado`);
+        return data;
+    } catch (error: any) {
+        console.warn(`⚠️ [Typing] Falha ao enviar typing - continuando mesmo assim:`, error.message);
+        return null;
+    }
+};
+
+/**
  * Envia mensagem de texto (Mantido)
  */
 export const sendTextMessage = async (instanceName: string, remoteJid: string, text: string) => {
