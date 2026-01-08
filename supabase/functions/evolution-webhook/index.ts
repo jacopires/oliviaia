@@ -102,27 +102,60 @@ serve(async (req) => {
                 console.log('💬 textContent:', textContent)
                 console.log('👤 pushName:', pushName)
 
-                // SALVAR DIRETO - Apenas nome e timestamp
+                // SALVAR DIRETO - Preservar nomes existentes
                 if (remoteJid) {
-                    // 1. Criar/atualizar chat (SEM avatar para evitar sobrescrever)
-                    const { data: chatData, error: chatError } = await supabase
+                    // 1. Verificar se o chat já existe
+                    const { data: existingChat } = await supabase
                         .from('chats')
-                        .upsert({
-                            whatsapp_id: remoteJid,
-                            name: pushName,
-                            last_message_at: new Date().toISOString(),
-                            status: 'Ativo'
-                            // avatar_url: removido para evitar trocas incorretas
-                        }, { onConflict: 'whatsapp_id' })
-                        .select('id')
+                        .select('id, name')
+                        .eq('whatsapp_id', remoteJid)
                         .single()
 
-                    if (chatError) {
-                        console.error('❌ Chat error:', chatError)
-                        return new Response(JSON.stringify({
-                            error: 'chat_failed',
-                            details: chatError.message
-                        }), { status: 500, headers: corsHeaders })
+                    let chatData
+
+                    if (existingChat) {
+                        // Chat já existe: apenas atualizar timestamp, NÃO sobrescrever nome
+                        console.log(`♻️  Chat existente, mantendo nome: "${existingChat.name}"`)
+                        const { data, error } = await supabase
+                            .from('chats')
+                            .update({
+                                last_message_at: new Date().toISOString(),
+                                status: 'Ativo'
+                            })
+                            .eq('whatsapp_id', remoteJid)
+                            .select('id')
+                            .single()
+
+                        if (error) {
+                            console.error('❌ Chat update error:', error)
+                            return new Response(JSON.stringify({
+                                error: 'chat_update_failed',
+                                details: error.message
+                            }), { status: 500, headers: corsHeaders })
+                        }
+                        chatData = data
+                    } else {
+                        // Chat novo: criar com pushName
+                        console.log(`✨ Novo chat, definindo nome: "${pushName}"`)
+                        const { data, error } = await supabase
+                            .from('chats')
+                            .insert({
+                                whatsapp_id: remoteJid,
+                                name: pushName,
+                                last_message_at: new Date().toISOString(),
+                                status: 'Ativo'
+                            })
+                            .select('id')
+                            .single()
+
+                        if (error) {
+                            console.error('❌ Chat insert error:', error)
+                            return new Response(JSON.stringify({
+                                error: 'chat_insert_failed',
+                                details: error.message
+                            }), { status: 500, headers: corsHeaders })
+                        }
+                        chatData = data
                     }
 
                     console.log('✅ Chat upserted:', chatData.id)
