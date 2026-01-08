@@ -519,8 +519,18 @@ const Monitor: React.FC = () => {
                 >
                   <Trash2 size={20} />
                 </button>
-                <button className="p-2 hover:bg-white/5 rounded-full text-gray-400"><Search size={20} /></button>
-                <button className="p-2 hover:bg-white/5 rounded-full text-gray-400"><MoreVertical size={20} /></button>
+                <button
+                  className="p-2 hover:bg-white/5 rounded-full text-gray-400"
+                  title="Buscar no chat"
+                >
+                  <Search size={20} />
+                </button>
+                <button
+                  className="p-2 hover:bg-white/5 rounded-full text-gray-400"
+                  title="Mais opções"
+                >
+                  <MoreVertical size={20} />
+                </button>
               </div>
             </header>
 
@@ -594,8 +604,18 @@ const Monitor: React.FC = () => {
             {/* INPUT - Floating Island */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
               <div className="bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex items-center gap-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
-                <button className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"><Smile size={20} /></button>
-                <button className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"><Paperclip size={20} /></button>
+                <button
+                  className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"
+                  title="Emojis"
+                >
+                  <Smile size={20} />
+                </button>
+                <button
+                  className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"
+                  title="Anexar arquivo"
+                >
+                  <Paperclip size={20} />
+                </button>
 
                 <input
                   value={inputText}
@@ -603,7 +623,14 @@ const Monitor: React.FC = () => {
                   onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                   placeholder="Digite sua mensagem..."
                   className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-600 px-2 font-medium"
+                  maxLength={4096}
                 />
+
+                {inputText.length > 0 && (
+                  <span className={`text-xs font-medium ${inputText.length > 4000 ? 'text-red-400' : 'text-gray-500'}`}>
+                    {inputText.length}/4096
+                  </span>
+                )}
 
                 <button
                   onClick={handleSendMessage}
