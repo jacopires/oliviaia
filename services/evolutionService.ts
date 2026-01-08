@@ -85,6 +85,37 @@ export const configureWebhook = async (instanceName: string, webhookUrl: string)
     return await res.json();
 };
 
+export const configureSettings = async (instanceName: string) => {
+    if (!EVOLUTION_API_URL) throw new Error('EVOLUTION_API_URL não configurado');
+
+    console.log(`⚙️  [Configure Settings] Configurando settings para: ${instanceName}`);
+
+    const res = await fetch(`${EVOLUTION_API_URL}/settings/set/${instanceName}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+            rejectCall: true,
+            msgCall: 'Olá! Não atendo chamadas no momento. Por favor, envie uma mensagem.',
+            groupsIgnore: true
+        })
+    });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`❌ [Configure Settings] Falha (${res.status}):`, errorText);
+        try {
+            const err = JSON.parse(errorText);
+            const msg = err.response?.message || err.message || JSON.stringify(err);
+            throw new Error(`Erro Settings: ${msg}`);
+        } catch (e) {
+            throw new Error(`Erro API (${res.status}): ${errorText}`);
+        }
+    }
+
+    console.log('✅ [Configure Settings] Settings configurados com sucesso');
+    return await res.json();
+};
+
 export const fetchWebhookConfig = async (instanceName: string) => {
     if (!EVOLUTION_API_URL) return null;
     try {
@@ -245,10 +276,10 @@ export const updateChatProfile = async (instanceName: string, chatId: string, re
             headers: getHeaders(),
             body: JSON.stringify({ number: remoteJid })
         });
-        
+
         const dataPic = await resPic.json().catch(() => ({}));
         const avatarUrl = dataPic.profilePictureUrl || dataPic.url || null;
-        
+
         console.log(`📸 [Evolution] Avatar para ${remoteJid}:`, avatarUrl ? 'URL encontrada' : 'Sem foto');
 
         // 2. Busca Nome
@@ -259,12 +290,12 @@ export const updateChatProfile = async (instanceName: string, chatId: string, re
         });
         const dataName = await resName.json().catch(() => ({}));
         const name = dataName.name || dataName.pushName || dataName.notify || null;
-        
+
         console.log(`👤 [Evolution] Nome para ${remoteJid}:`, name || 'Não encontrado');
 
         // 3. Atualiza Banco
         const updates: any = {};
-        
+
         // Sempre atualizar avatar (mesmo que seja null para limpar fotos incorretas)
         updates.avatar_url = avatarUrl;
 

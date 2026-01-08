@@ -4,7 +4,7 @@ import {
   MessageCircle, Calendar, Mail, Search,
   CheckCircle, AlertCircle, RefreshCw, Server, X, Wifi
 } from 'lucide-react';
-import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance, fetchAllInstances, configureWebhook } from '../services/evolutionService';
+import { fetchInstanceStatus, createInstance, fetchQRCode, logoutInstance, fetchAllInstances, configureWebhook, configureSettings } from '../services/evolutionService';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
 
@@ -87,6 +87,11 @@ const Integrations: React.FC = () => {
         configureWebhook(name, 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook')
           .then(() => console.log('✅ Webhook configurado automaticamente'))
           .catch(err => console.error('❌ Falha ao configurar webhook:', err));
+
+        // AUTO-CONFIGURE SETTINGS (Reject Calls + Ignore Groups)
+        configureSettings(name)
+          .then(() => console.log('✅ Settings configurados automaticamente'))
+          .catch(err => console.error('❌ Falha ao configurar settings:', err));
 
         showToast('Dispositivo conectado com sucesso!', 'success');
         setTimeout(() => {
@@ -190,6 +195,11 @@ const Integrations: React.FC = () => {
         configureWebhook(name, 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook')
           .then(() => console.log('✅ Webhook configurado automaticamente'))
           .catch(err => console.error('❌ Falha ao configurar webhook:', err));
+
+        // AUTO-CONFIGURE SETTINGS (Reject Calls + Ignore Groups)
+        configureSettings(name)
+          .then(() => console.log('✅ Settings configurados automaticamente'))
+          .catch(err => console.error('❌ Falha ao configurar settings:', err));
 
         showToast('Dispositivo conectado com sucesso!', 'success');
         setTimeout(() => {
