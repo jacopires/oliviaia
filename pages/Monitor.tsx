@@ -110,7 +110,8 @@ const Monitor: React.FC = () => {
       const config = await fetchWebhookConfig(name);
       const targetUrl = 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook';
 
-      const needsConfig = !config?.webhook?.enabled || config?.webhook?.url !== targetUrl;
+      const normalizeUrl = (url: string) => url?.replace(/\/$/, '');
+      const needsConfig = !config?.webhook?.enabled || normalizeUrl(config?.webhook?.url || '') !== normalizeUrl(targetUrl);
 
       if (needsConfig) {
         console.warn('⚠️ [Monitor] Webhook desconfigurado ou incorreto. Corrigindo...');

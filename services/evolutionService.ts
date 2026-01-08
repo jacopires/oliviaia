@@ -564,22 +564,27 @@ export const syncMessages = async (instanceName: string, remoteJid: string) => {
                     '';
             }
 
-            if (!textContent) continue;
+            if (!textContent) {
+                console.warn('⚠️ [Sync] Mensagem sem conteúdo de texto ignorada:', JSON.stringify(msg).substring(0, 100));
+                continue;
+            }
 
-            // Use messageTimestamp (seconds) or fallback
-            // Note: Evolution might return 'pushName' in msg
-
-            const { error } = await supabase.from('messages').upsert({
+            // Tentativa de upsert
+            const { error, data } = await supabase.from('messages').upsert({
                 chat_id: chatData.id,
                 sender: isFromMe ? 'agent' : 'user',
                 text: textContent,
                 created_at: new Date((msg.messageTimestamp || Date.now() / 1000) * 1000).toISOString()
-            }, { onConflict: 'created_at' }); // WARNING: 'created_at' conflict might be risky if multiple msgs per second. 
-            // In a better schema, we should store message ID (msg.key.id).
+            }, { onConflict: 'created_at' });
 
-            if (!error) count++;
+            if (error) {
+                console.error('❌ [Sync] Erro no upsert:', error.message, error.details);
+            } else {
+                count++;
+                // console.log('✅ [Sync] Msg OK:', textContent.substring(0, 20));
+            }
         }
-        console.log(`✅ ${count} mensagens sincronizadas para ${cleanJid}`);
+        console.log(`✅ ${count} mensagens sincronizadas para ${cleanJid} (de ${messages.length} encontradas)`);
         return count;
 
     } catch (e) {
