@@ -304,9 +304,23 @@ const Monitor: React.FC = () => {
     setInputText('');
     setIsSending(true);
 
+    // Criar mensagem otimista (aparece imediatamente)
+    const optimisticMessage = {
+      id: `temp-${Date.now()}`,
+      chat_id: activeChatId,
+      sender: 'agent' as const,
+      text: textToSend,
+      created_at: new Date().toISOString()
+    };
+
+    // Adicionar mensagem ao estado imediatamente
+    setActiveMessages(prev => [...prev, optimisticMessage]);
+    scrollToBottom();
+
     try {
       await sendTextMessage(instanceName, chat.whatsapp_id, textToSend);
 
+      // Inserir no banco (Realtime vai substituir a mensagem otimista)
       await supabase.from('messages').insert({
         chat_id: activeChatId,
         sender: 'agent',
@@ -319,11 +333,12 @@ const Monitor: React.FC = () => {
       }).eq('id', activeChatId);
 
     } catch (err: any) {
+      // Remover mensagem otimista se falhou
+      setActiveMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
       showToast(`❌ Erro envio: ${err.message}`, 'error');
       setInputText(textToSend);
     } finally {
       setIsSending(false);
-      scrollToBottom();
     }
   };
 
@@ -384,8 +399,8 @@ const Monitor: React.FC = () => {
             <button
               onClick={() => setActiveTab('individual')}
               className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'individual'
-                  ? 'bg-primary text-black'
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                ? 'bg-primary text-black'
+                : 'bg-white/5 text-gray-400 hover:bg-white/10'
                 }`}
             >
               Contatos ({individualCount})
@@ -393,8 +408,8 @@ const Monitor: React.FC = () => {
             <button
               onClick={() => setActiveTab('group')}
               className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'group'
-                  ? 'bg-primary text-black'
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                ? 'bg-primary text-black'
+                : 'bg-white/5 text-gray-400 hover:bg-white/10'
                 }`}
             >
               Grupos ({groupCount})
