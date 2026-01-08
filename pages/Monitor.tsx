@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../services/supabase';
 import { useToast } from '../components/ToastProvider';
@@ -401,11 +401,14 @@ const Monitor: React.FC = () => {
   const activeChat = chats.find(c => c.id === activeChatId);
 
   // Filtrar apenas por busca (grupos já são ignorados pela API)
-  const filteredChats = chats.filter(c => {
-    const matchesSearch = c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.whatsapp_id.includes(searchQuery);
-    return matchesSearch;
-  });
+  // useMemo evita recálculo desnecessário quando inputText muda (não relacionado)
+  const filteredChats = useMemo(() => {
+    return chats.filter(c => {
+      const matchesSearch = c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.whatsapp_id.includes(searchQuery);
+      return matchesSearch;
+    });
+  }, [chats, searchQuery]);
 
   return (
     <div className="flex h-[calc(100vh-theme(spacing.header))] overflow-hidden bg-background-dark gap-4 p-4">
@@ -624,7 +627,7 @@ const Monitor: React.FC = () => {
 
             {/* INPUT - Floating Island */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
-              <div className="bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex items-center gap-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
+              <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-2 flex items-center gap-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
                 <button
                   className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"
                   title="Emojis"
