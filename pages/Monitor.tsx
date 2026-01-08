@@ -49,7 +49,9 @@ const Monitor: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
+  const [isContactTyping, setIsContactTyping] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
+
 
   // Edição de Perfil
   const [isEditingName, setIsEditingName] = useState(false);
@@ -569,6 +571,24 @@ const Monitor: React.FC = () => {
                   </React.Fragment>
                 );
               })}
+
+              {/* Indicador de Digitação */}
+              {isContactTyping && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="flex justify-start"
+                >
+                  <div className="bg-gray-800/90 rounded-2xl rounded-tl-sm p-4 px-5 shadow-lg border border-white/5">
+                    <div className="flex gap-1.5">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
             </div>
 
             {/* INPUT - Floating Island */}
