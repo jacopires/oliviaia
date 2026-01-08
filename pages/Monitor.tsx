@@ -164,18 +164,25 @@ const Monitor: React.FC = () => {
           filter: `chat_id=eq.${activeChatId}`
         },
         (payload) => {
+          console.log('⚡ [Monitor] Realtime msg recebida:', payload.new);
           // Evitar duplicatas
           setActiveMessages((prev) => {
             const exists = prev.some(m => m.id === payload.new.id);
-            if (exists) return prev;
+            if (exists) {
+              console.log('⚠️ Ignorando duplicata:', payload.new.id);
+              return prev;
+            }
             return [...prev, payload.new as Message];
           });
           scrollToBottom();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔌 [Monitor] Status Realtime:', status, channelName);
+      });
 
     return () => {
+      console.log('🔌 [Monitor] Unsubscribing channel:', channelName);
       supabase.removeChannel(msgChannel);
     };
   }, [activeChatId]);
