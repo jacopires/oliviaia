@@ -86,6 +86,17 @@ serve(async (req) => {
             const chatType = remoteJid && remoteJid.includes('@g.us') ? 'group' : 'individual'
             console.log('📋 Tipo de chat:', chatType)
 
+            // Normalizar remoteJid removendo sufixos numéricos (ex: 5517992236075:24@s.whatsapp.net → 5517992236075@s.whatsapp.net)
+            // Isso previne duplicatas quando a API envia o mesmo número com sufixos diferentes
+            if (remoteJid && remoteJid.includes(':')) {
+                const parts = remoteJid.split('@')
+                if (parts.length === 2) {
+                    const numberPart = parts[0].split(':')[0]  // Remove :24, :45, etc.
+                    remoteJid = `${numberPart}@${parts[1]}`
+                    console.log('🔧 remoteJid normalizado:', remoteJid)
+                }
+            }
+
             // Se tem remoteJid, tentar extrair texto
             if (remoteJid) {
                 // Texto pode estar em vários lugares
