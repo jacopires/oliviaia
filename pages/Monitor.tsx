@@ -13,7 +13,7 @@ import {
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
-  Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck
+  Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck, ArrowDown
 } from 'lucide-react';
 
 // Tipagem
@@ -50,6 +50,7 @@ const Monitor: React.FC = () => {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
   const [isContactTyping, setIsContactTyping] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
 
 
@@ -215,6 +216,20 @@ const Monitor: React.FC = () => {
       if (chat) setTempName(chat.name);
     }
   }, [activeChatId, instanceName]);
+
+  // Detectar scroll para mostrar/esconder botão "ir para o final"
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      setShowScrollButton(!isNearBottom);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [activeChatId]);
 
   // --- Data Fetching ---
 
@@ -600,6 +615,22 @@ const Monitor: React.FC = () => {
                 </motion.div>
               )}
             </div>
+
+            {/* Botão Scroll to Bottom */}
+            <AnimatePresence>
+              {showScrollButton && (
+                <motion.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  onClick={scrollToBottom}
+                  className="absolute bottom-24 right-8 p-4 bg-primary text-black rounded-full shadow-2xl hover:bg-primary/90 transition-all z-20 hover:scale-110"
+                  title="Ir para o final"
+                >
+                  <ArrowDown size={20} />
+                </motion.button>
+              )}
+            </AnimatePresence>
 
             {/* INPUT - Floating Island */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
