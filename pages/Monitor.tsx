@@ -48,7 +48,6 @@ const Monitor: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
-  const [activeTab, setActiveTab] = useState<'individual' | 'group'>('individual');
   const [instanceName, setInstanceName] = useState<string | null>(null);
 
   // Edição de Perfil
@@ -384,20 +383,15 @@ const Monitor: React.FC = () => {
 
   const activeChat = chats.find(c => c.id === activeChatId);
 
-  // Filtrar por tipo e busca
+  // Filtrar apenas por busca (grupos já são ignorados pela API)
   const filteredChats = chats.filter(c => {
-    const matchesType = c.type === activeTab;
     const matchesSearch = c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.whatsapp_id.includes(searchQuery);
-    return matchesType && matchesSearch;
+    return matchesSearch;
   });
 
-  // Contadores por tipo
-  const individualCount = chats.filter(c => c.type === 'individual').length;
-  const groupCount = chats.filter(c => c.type === 'group').length;
-
   // Debug: Log render state
-  console.log('🎨 [Monitor] Renderizando:', { totalChats: chats.length, filteredChats: filteredChats.length, searchQuery, activeTab });
+  console.log('🎨 [Monitor] Renderizando:', { totalChats: chats.length, filteredChats: filteredChats.length, searchQuery });
 
   return (
     <div className="flex h-[calc(100vh-theme(spacing.header))] overflow-hidden bg-background-dark gap-4 p-4">
@@ -419,28 +413,6 @@ const Monitor: React.FC = () => {
               title="Sincronizar nomes e fotos"
             >
               <RefreshCw className={`w-5 h-5 text-gray-400 hover:text-primary transition-colors ${isSyncingProfiles ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {/* TABS: Contatos / Grupos */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab('individual')}
-              className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'individual'
-                ? 'bg-primary text-black'
-                : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                }`}
-            >
-              Contatos ({individualCount})
-            </button>
-            <button
-              onClick={() => setActiveTab('group')}
-              className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'group'
-                ? 'bg-primary text-black'
-                : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                }`}
-            >
-              Grupos ({groupCount})
             </button>
           </div>
 
