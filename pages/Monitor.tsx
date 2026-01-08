@@ -565,7 +565,7 @@ const Monitor: React.FC = () => {
                   <React.Fragment key={msg.id}>
                     {showDivider && (
                       <div className="flex justify-center my-6">
-                        <span className="bg-black/40 backdrop-blur-sm px-4 py-1.5 rounded-full text-xs text-gray-400 font-medium border border-white/5">
+                        <span className="bg-black/60 px-4 py-1.5 rounded-full text-xs text-gray-400 font-medium border border-white/5">
                           {formatDate(msg.created_at)}
                         </span>
                       </div>
