@@ -15,6 +15,7 @@ import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
   Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck, ArrowDown
 } from 'lucide-react';
+import { ChatInput } from '../components/ChatInput';
 
 // Tipagem
 interface Message {
@@ -41,7 +42,6 @@ const Monitor: React.FC = () => {
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeMessages, setActiveMessages] = useState<Message[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Estados de Controle
@@ -301,8 +301,11 @@ const Monitor: React.FC = () => {
 
   // --- Actions ---
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || !activeChatId || !instanceName) {
+  const handleSendMessage = async (text?: string) => {
+    // Se vier do botão interno do ChatInput, usa o texto passado
+    const textToSend = text;
+
+    if (!textToSend?.trim() || !activeChatId || !instanceName) {
       if (!instanceName) showToast('❌ Erro: Instância não definida no .env', 'error');
       return;
     }
@@ -310,8 +313,6 @@ const Monitor: React.FC = () => {
     const chat = chats.find(c => c.id === activeChatId);
     if (!chat) return;
 
-    const textToSend = inputText;
-    setInputText('');
     setIsSending(true);
 
     // Criar mensagem otimista (aparece imediatamente)
@@ -352,7 +353,7 @@ const Monitor: React.FC = () => {
       // Remover mensagem otimista se falhou
       setActiveMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
       showToast(`❌ Erro envio: ${err.message}`, 'error');
-      setInputText(textToSend);
+      // Não temos mais setInputText aqui pois o input está isolado, mas o erro será mostrado no toast
     } finally {
       setIsSending(false);
     }
@@ -625,46 +626,8 @@ const Monitor: React.FC = () => {
               )}
             </AnimatePresence>
 
-            {/* INPUT - Floating Island */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-30">
-              <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-2 flex items-center gap-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
-                <button
-                  className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"
-                  title="Emojis"
-                >
-                  <Smile size={20} />
-                </button>
-                <button
-                  className="p-3 hover:bg-white/10 rounded-xl text-gray-400 transition-colors"
-                  title="Anexar arquivo"
-                >
-                  <Paperclip size={20} />
-                </button>
-
-                <input
-                  value={inputText}
-                  onChange={e => setInputText(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                  placeholder="Digite sua mensagem..."
-                  className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-600 px-2 font-medium"
-                  maxLength={4096}
-                />
-
-                {inputText.length > 0 && (
-                  <span className={`text-xs font-medium ${inputText.length > 4000 ? 'text-red-400' : 'text-gray-500'}`}>
-                    {inputText.length}/4096
-                  </span>
-                )}
-
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isSending || !inputText.trim()}
-                  className="p-3 bg-emerald-500 hover:bg-emerald-400 rounded-xl text-black shadow-lg shadow-emerald-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
-                >
-                  {isSending ? <RefreshCw className="animate-spin" size={20} /> : <Send size={20} />}
-                </button>
-              </div>
-            </div>
+            {/* INPUT - Componente Isolado */}
+            <ChatInput onSendMessage={handleSendMessage} isSending={isSending} />
 
           </>
         ) : (
