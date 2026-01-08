@@ -521,10 +521,23 @@ export const syncMessages = async (instanceName: string, remoteJid: string) => {
         if (!res.ok) throw new Error('Falha ao buscar mensagens');
 
         const data = await res.json();
-        console.log('📦 Raw Messages Response:', data); // DEBUG
 
-        // Evolution v2 usually returns an array of messages directly or in { messages: [...] }
-        const messages = Array.isArray(data) ? data : (data.messages || []);
+        // Evolution v2 pode retornar vários formatos:
+        // 1. Array direto: [...]
+        // 2. Objeto com messages: { messages: [...] }
+        // 3. Objeto com múltiplas mensagens: { message: {...}, message: {...} }
+        let messages = [];
+
+        if (Array.isArray(data)) {
+            messages = data;
+        } else if (data.messages && Array.isArray(data.messages)) {
+            messages = data.messages;
+        } else if (typeof data === 'object' && data !== null) {
+            // Tentar extrair valores do objeto
+            messages = Object.values(data).filter(item => item && typeof item === 'object');
+        }
+
+        console.log(`📦 Encontradas ${messages.length} mensagens para sincronizar`);
 
         // Vamos precisar do chat_id interno do supabase
         const { data: chatData } = await supabase.from('chats').select('id').eq('whatsapp_id', cleanJid).single();
