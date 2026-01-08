@@ -51,6 +51,16 @@ serve(async (req) => {
 
             console.log('📞 remoteJid:', remoteJid)
 
+            // FILTRO 0: Verificar addressingMode (se for "lid", ignorar)
+            const addressingMode = messageData.key?.addressingMode
+            if (addressingMode === 'lid') {
+                console.log('⏭️ Ignorando addressingMode lid')
+                return new Response(JSON.stringify({
+                    received: true,
+                    skipped: 'lid_addressing_mode'
+                }), { headers: corsHeaders })
+            }
+
             // FILTRO 1: Validar formato do remoteJid
             // Deve conter @ para ser válido (ex: 5511999999999@s.whatsapp.net)
             // Se for apenas números, é provável que seja um lid ou ID inválido
