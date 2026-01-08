@@ -13,7 +13,7 @@ import {
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
-  Camera, Pencil, Check, MessageSquare, Trash2
+  Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck
 } from 'lucide-react';
 
 // Tipagem
@@ -525,25 +525,50 @@ const Monitor: React.FC = () => {
             {/* MESSAGES - Scroll Zone */}
             <div
               ref={chatContainerRef}
-              className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar pb-32"
+              className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar pb-32"
             >
-              {activeMessages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
-                >
-                  <div className={`max-w-[70%] p-4 rounded-2xl relative shadow-lg ${msg.sender === 'user'
-                    ? 'bg-[#1f1f1f] text-gray-200 rounded-tl-sm'
-                    : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20 rounded-tr-sm'
-                    }`}>
-                    <p className="whitespace-pre-wrap leading-relaxed text-sm">{msg.text}</p>
-                    <span className="text-[10px] opacity-40 mt-1 block text-right">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
+              {activeMessages.map((msg, idx) => {
+                const formatDate = (d: string) => {
+                  const date = new Date(d);
+                  const today = new Date();
+                  const yesterday = new Date(today);
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  if (date.toDateString() === today.toDateString()) return 'Hoje';
+                  if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
+                  return date.toLocaleDateString('pt-BR');
+                };
+
+                const showDivider = idx === 0 || formatDate(msg.created_at) !== formatDate(activeMessages[idx - 1].created_at);
+                const isAgent = msg.sender === 'agent';
+
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDivider && (
+                      <div className="flex justify-center my-6">
+                        <span className="bg-black/40 backdrop-blur-sm px-4 py-1.5 rounded-full text-xs text-gray-400 font-medium border border-white/5">
+                          {formatDate(msg.created_at)}
+                        </span>
+                      </div>
+                    )}
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.2 }}
+                      className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className={`max-w-[75%] p-3 rounded-2xl shadow-lg ${isAgent ? 'bg-primary text-black rounded-tr-sm' : 'bg-gray-800/90 text-gray-100 rounded-tl-sm border border-white/5'}`}>
+                        <p className="whitespace-pre-wrap leading-relaxed text-sm">{msg.text}</p>
+                        <div className="flex items-center justify-end gap-1 mt-1.5">
+                          <span className={`text-[11px] font-medium ${isAgent ? 'text-black/50' : 'text-gray-400'}`}>
+                            {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isAgent && <CheckCheck className={`w-4 h-4 ${msg.id.startsWith('temp-') ? 'text-black/30' : 'text-black/50'}`} />}
+                        </div>
+                      </div>
+                    </motion.div>
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             {/* INPUT - Floating Island */}
