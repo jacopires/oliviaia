@@ -12,7 +12,7 @@ import {
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
-  Camera, Pencil, Check, MessageSquare
+  Camera, Pencil, Check, MessageSquare, Trash2
 } from 'lucide-react';
 
 // Tipagem
@@ -350,6 +350,34 @@ const Monitor: React.FC = () => {
     showToast('Nome salvo!', 'success');
   };
 
+  const handleDeleteChat = async () => {
+    if (!activeChatId) return;
+
+    const chatToDelete = chats.find(c => c.id === activeChatId);
+    if (!chatToDelete) return;
+
+    const confirmDelete = window.confirm(`Deseja realmente excluir a conversa com "${chatToDelete.name}"?\n\nTodas as mensagens serão perdidas.`);
+
+    if (!confirmDelete) return;
+
+    try {
+      // Deletar mensagens primeiro (cascade deveria fazer isso, mas garantir)
+      await supabase.from('messages').delete().eq('chat_id', activeChatId);
+
+      // Deletar chat
+      await supabase.from('chats').delete().eq('id', activeChatId);
+
+      // Atualizar UI
+      setChats(prev => prev.filter(c => c.id !== activeChatId));
+      setActiveChatId(null);
+      setActiveMessages([]);
+
+      showToast('Conversa excluída!', 'success');
+    } catch (err: any) {
+      showToast(`❌ Erro ao excluir: ${err.message}`, 'error');
+    }
+  };
+
   // Sync manual removido - conversas criadas apenas via webhook ou envio
 
   // --- Render ---
@@ -503,6 +531,13 @@ const Monitor: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2">
+                <button
+                  onClick={handleDeleteChat}
+                  className="p-2 hover:bg-red-500/10 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                  title="Excluir conversa"
+                >
+                  <Trash2 size={20} />
+                </button>
                 <button className="p-2 hover:bg-white/5 rounded-full text-gray-400"><Search size={20} /></button>
                 <button className="p-2 hover:bg-white/5 rounded-full text-gray-400"><MoreVertical size={20} /></button>
               </div>
