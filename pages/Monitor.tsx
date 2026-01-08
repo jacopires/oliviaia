@@ -62,41 +62,30 @@ const Monitor: React.FC = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // 1. Setup Inicial
-  // 1. Setup Inicial com Validação de Instância
-  // 1. Setup Inicial com Validação de Instância
   useEffect(() => {
     initInstance();
 
-    // Listener para detectar conexão em tempo real (ex: conectou na outra aba)
+    // Listener apenas para atualizações de chats (não mensagens)
     const sub = supabase.channel('monitor_dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
-        console.log('⚡ [Monitor] Realtime Update (chats):', payload);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
         fetchChats();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
-        console.log('⚡ [Monitor] Realtime Update (messages):', payload);
-        // Opcional: atualizar mensagens se o chat estiver aberto
-      })
-      .subscribe((status) => {
-        console.log('🔌 [Monitor] Status Realtime:', status);
-      });
+      .subscribe();
 
     return () => { supabase.removeChannel(sub); };
   }, []);
 
   const initInstance = async () => {
-    console.log('🚀 [Monitor] Iniciando busca de instância...');
     let target = null;
 
     // 1. PRIORIDADE: Banco de Dados (Intenção do Usuário)
     try {
-      const { data, error } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
-      console.log('📊 [Monitor] Resultado DB:', { data, error });
+      const { data } = await supabase.from('integrations_whatsapp').select('instance_id').limit(1).single();
       if (data?.instance_id) {
         target = data.instance_id;
       }
     } catch (e) {
-      console.error('❌ [Monitor] Erro ao ler banco:', e);
+      // Silencioso
     }
 
     // 3. Define State
@@ -141,8 +130,7 @@ const Monitor: React.FC = () => {
     let fetchTimeout: NodeJS.Timeout | null = null;
 
     const chatSub = supabase.channel('monitor_chats')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
-        console.log('⚡ [Monitor] Realtime chats:', payload.eventType);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
 
         // Debounce: aguardar 500ms antes de recarregar para agrupar múltiplos eventos
         if (fetchTimeout) clearTimeout(fetchTimeout);
@@ -418,9 +406,6 @@ const Monitor: React.FC = () => {
       c.whatsapp_id.includes(searchQuery);
     return matchesSearch;
   });
-
-  // Debug: Log render state
-  console.log('🎨 [Monitor] Renderizando:', { totalChats: chats.length, filteredChats: filteredChats.length, searchQuery });
 
   return (
     <div className="flex h-[calc(100vh-theme(spacing.header))] overflow-hidden bg-background-dark gap-4 p-4">
