@@ -644,11 +644,24 @@ const Monitor: React.FC = () => {
 
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-500 opacity-60">
-            <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 border border-white/5">
-              <MessageSquare size={40} />
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 px-8">
+            <div className="w-32 h-32 bg-gradient-to-br from-primary/20 to-primary/5 rounded-3xl flex items-center justify-center mb-6 border border-primary/20 shadow-lg shadow-primary/10">
+              <MessageSquare size={48} className="text-primary" />
             </div>
-            <p className="text-lg">Selecione uma conversa para começar</p>
+            <h3 className="text-2xl font-bold text-gray-200 mb-3">Bem-vindo ao Monitor</h3>
+            <p className="text-center text-gray-500 max-w-md leading-relaxed">
+              Selecione uma conversa à esquerda para começar a visualizar e responder mensagens do WhatsApp em tempo real.
+            </p>
+            <div className="mt-8 flex gap-4 flex-wrap justify-center">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                Mensagens em tempo real
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                Sincronização automática
+              </div>
+            </div>
           </div>
         )}
       </main>
