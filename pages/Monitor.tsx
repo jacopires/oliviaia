@@ -158,36 +158,60 @@ const Monitor: React.FC = () => {
     };
   }, []);
 
+
   // 3. Realtime para Mensagens (filtrado por chat ativo)
   useEffect(() => {
-    if (!activeChatId) return;
+    if (!activeChatId) {
+      console.log('⏭️ [Monitor] Sem chat ativo, pulando subscription');
+      return;
+    }
 
-    console.log('🔌 [Monitor] Subscribing to messages for chat:', activeChatId);
+    console.log('🔌 [Monitor] Criando subscription para chat:', activeChatId);
 
-    const msgChannel = supabase.channel(`room:${activeChatId}`)
+    // Criar canal com nome único baseado no chat ID
+    const channelName = `messages:${activeChatId}:${Date.now()}`;
+    const msgChannel = supabase
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `chat_id=eq.${activeChatId}` // Server-side filter
+          filter: `chat_id=eq.${activeChatId}`
         },
         (payload) => {
-          console.log('🔔 [Monitor] Nova mensagem realtime:', payload.new);
-          setActiveMessages((prev) => [...prev, payload.new as Message]);
+          console.log('🔔 [Monitor] Nova mensagem via Realtime:', payload.new);
+
+          // Evitar duplicatas: verificar se mensagem já existe
+          setActiveMessages((prev) => {
+            const exists = prev.some(m => m.id === payload.new.id);
+            if (exists) {
+              console.log('⚠️ [Monitor] Mensagem duplicada ignorada:', payload.new.id);
+              return prev;
+            }
+            console.log('✅ [Monitor] Mensagem adicionada ao estado');
+            return [...prev, payload.new as Message];
+          });
+
           scrollToBottom();
         }
       )
       .subscribe((status) => {
-        console.log('📡 [Monitor] Message subscription status:', status);
+        console.log('📡 [Monitor] Subscription status:', status, 'Canal:', channelName);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ [Monitor] Realtime conectado com sucesso!');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ [Monitor] Erro no canal Realtime');
+        }
       });
 
     return () => {
-      console.log('🔌 [Monitor] Unsubscribing from messages for chat:', activeChatId);
+      console.log('🔌 [Monitor] Limpando subscription do chat:', activeChatId);
       supabase.removeChannel(msgChannel);
     };
   }, [activeChatId]);
+
 
   // 3. Auto Scroll
   const scrollToBottom = () => {
