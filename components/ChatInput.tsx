@@ -46,7 +46,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isSending }
                     placeholder="Digite sua mensagem..."
                     className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-600 px-2 font-medium"
                     maxLength={4096}
-                    disabled={isSending}
                 />
 
                 {inputText.length > 0 && (
@@ -57,10 +56,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isSending }
 
                 <button
                     onClick={handleSend}
-                    disabled={isSending || !inputText.trim()}
+                    disabled={!inputText.trim()}
                     className="p-3 bg-emerald-500 hover:bg-emerald-400 rounded-xl text-black shadow-lg shadow-emerald-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
                 >
-                    {isSending ? <RefreshCw className="animate-spin" size={20} /> : <Send size={20} />}
+                    <Send size={20} />
                 </button>
             </div>
         </div>

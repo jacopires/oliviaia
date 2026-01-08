@@ -13,18 +13,23 @@ import {
 } from '../services/evolutionService';
 import {
   Send, Smile, Paperclip, MoreVertical, RefreshCw, Search,
-  Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck, ArrowDown
+  Camera, Pencil, Check, MessageSquare, Trash2, CheckCheck, ArrowDown, Clock
 } from 'lucide-react';
 import { ChatInput } from '../components/ChatInput';
+import { RealtimeTest } from '../components/RealtimeTest';
 
-// Tipagem
 interface Message {
   id: string;
   chat_id: string;
   sender: 'ai' | 'user' | 'agent';
   text: string;
   created_at: string;
+  provider_message_id?: string;
+  status?: 'pending' | 'sent' | 'delivered' | 'read';
+  media_url?: string;
+  media_type?: string;
 }
+
 
 interface ChatSession {
   id: string;
@@ -64,15 +69,7 @@ const Monitor: React.FC = () => {
   // 1. Setup Inicial
   useEffect(() => {
     initInstance();
-
-    // Listener apenas para atualizações de chats (não mensagens)
-    const sub = supabase.channel('monitor_dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
-        fetchChats();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(sub); };
+    fetchChats(); // Carregar chats na inicialização
   }, []);
 
   const initInstance = async () => {
@@ -139,7 +136,13 @@ const Monitor: React.FC = () => {
           fetchChats();
         }, 500);
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log('🔌 [Monitor] Realtime Chats Status:', status);
+        if (err) console.error('❌ [Monitor] Realtime Chats Error:', err);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ [Monitor] Realtime para chats ATIVO!');
+        }
+      });
 
     return () => {
       if (fetchTimeout) clearTimeout(fetchTimeout);
@@ -147,6 +150,18 @@ const Monitor: React.FC = () => {
     };
   }, []);
 
+  // 2.2 Polling Fallback para Chats - Atualiza lista a cada 5 segundos
+  useEffect(() => {
+    console.log('⏰ [Monitor] Iniciando polling de chats (fallback)');
+    const pollInterval = setInterval(() => {
+      fetchChats();
+    }, 5000); // A cada 5 segundos
+
+    return () => {
+      console.log('⏰ [Monitor] Parando polling de chats');
+      clearInterval(pollInterval);
+    };
+  }, []);
 
 
   // 3. Realtime para Mensagens (filtrado por chat ativo)
@@ -159,27 +174,76 @@ const Monitor: React.FC = () => {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',  // Captura INSERT e UPDATE (upsert dispara UPDATE se já existir)
           schema: 'public',
           table: 'messages',
           filter: `chat_id=eq.${activeChatId}`
         },
         (payload) => {
-          console.log('⚡ [Monitor] Realtime msg recebida:', payload.new);
-          // Evitar duplicatas
+          console.log(`⚡ [Monitor] Realtime ${payload.eventType}:`, payload.new);
+          const newMessage = payload.new as Message;
+
+          // Evitar duplicatas e atualizar existentes
           setActiveMessages((prev) => {
-            const exists = prev.some(m => m.id === payload.new.id);
-            if (exists) {
-              console.log('⚠️ Ignorando duplicata:', payload.new.id);
+            // Se é UPDATE, substituir a mensagem existente
+            if (payload.eventType === 'UPDATE') {
+              const existingIndex = prev.findIndex(m => m.id === newMessage.id);
+              if (existingIndex !== -1) {
+                console.log('🔄 [Monitor] Atualizando mensagem existente:', newMessage.id);
+                const newPrev = [...prev];
+                newPrev[existingIndex] = newMessage;
+                return newPrev;
+              }
+            }
+
+            // Se já existe com ID real (duplicata exata), ignora
+            if (prev.some(m => m.id === newMessage.id)) {
+              console.log('⚠️ Ignorando duplicata exata:', newMessage.id);
               return prev;
             }
-            return [...prev, payload.new as Message];
+
+            // 2. Se é mensagem do agente, tenta substituir a OTIMISTA correspondente
+            if (newMessage.sender === 'agent') {
+              // Tenta encontrar por provider_message_id (precisão 100%)
+              const byProviderId = prev.findIndex(m =>
+                m.provider_message_id &&
+                newMessage.provider_message_id &&
+                m.provider_message_id === newMessage.provider_message_id
+              );
+
+              if (byProviderId !== -1) {
+                console.log('🔄 Substituindo por Provider ID:', newMessage.provider_message_id);
+                const newPrev = [...prev];
+                newPrev[byProviderId] = newMessage;
+                return newPrev;
+              }
+
+              // Fallback: Procura por mensagem temp com mesmo texto (precisão alta)
+              const byContent = prev.findIndex(m =>
+                m.id.startsWith('temp-') &&
+                m.text.trim() === newMessage.text.trim() // Trim para garantir
+              );
+
+              if (byContent !== -1) {
+                console.log('🔄 Substituindo por Conteúdo:', newMessage.id);
+                const newPrev = [...prev];
+                newPrev[byContent] = newMessage;
+                return newPrev;
+              }
+            }
+
+            // 3. Caso normal: adiciona ao final
+            return [...prev, newMessage];
           });
           scrollToBottom();
         }
       )
-      .subscribe((status) => {
-        console.log('🔌 [Monitor] Status Realtime:', status, channelName);
+      .subscribe((status, err) => {
+        console.log('🔌 [Monitor] Realtime Msg Status:', status, channelName);
+        if (err) console.error('❌ [Monitor] Realtime Msg Error:', err);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ [Monitor] Realtime para mensagens ATIVO!');
+        }
       });
 
     return () => {
@@ -188,6 +252,37 @@ const Monitor: React.FC = () => {
     };
   }, [activeChatId]);
 
+  // 2.5 Polling Fallback - Garante atualização mesmo se Realtime falhar
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    console.log('⏰ [Monitor] Iniciando polling de mensagens (fallback)');
+    const pollInterval = setInterval(async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('chat_id', activeChatId)
+        .order('created_at', { ascending: true });
+
+      if (data && !error) {
+        setActiveMessages((prev) => {
+          // Só atualiza se houver novas mensagens
+          if (data.length !== prev.length ||
+            (data.length > 0 && prev.length > 0 && data[data.length - 1].id !== prev[prev.length - 1].id)) {
+            console.log('🔄 [Monitor] Polling detectou novas mensagens!');
+            scrollToBottom();
+            return data;
+          }
+          return prev;
+        });
+      }
+    }, 3000); // A cada 3 segundos
+
+    return () => {
+      console.log('⏰ [Monitor] Parando polling');
+      clearInterval(pollInterval);
+    };
+  }, [activeChatId]);
 
 
   // 3. Auto Scroll
@@ -324,12 +419,13 @@ const Monitor: React.FC = () => {
     setIsSending(true);
 
     // Criar mensagem otimista (aparece imediatamente)
-    const optimisticMessage = {
+    const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
       chat_id: activeChatId,
-      sender: 'agent' as const,
+      sender: 'agent',
       text: textToSend,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      status: 'pending'
     };
 
     // Adicionar mensagem ao estado imediatamente
@@ -343,15 +439,28 @@ const Monitor: React.FC = () => {
       // Pequeno delay para dar tempo do typing aparecer
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      await sendTextMessage(instanceName, chat.whatsapp_id, textToSend);
+      const responseData = await sendTextMessage(instanceName, chat.whatsapp_id, textToSend);
+      const providerId = responseData?.key?.id || responseData?.messages?.[0]?.key?.id;
 
-      // Inserir no banco (Realtime vai substituir a mensagem otimista)
-      await supabase.from('messages').insert({
+      // ATUALIZAÇÃO CRÍTICA: Trocar ID otimista pelo ID real NO STATE IMEDIATAMENTE
+      // Isso impede que quando o Realtime chegue, ele duplique ou pisque a mensagem
+      if (providerId) {
+        setActiveMessages(prev => prev.map(m =>
+          m.id === optimisticMessage.id
+            ? { ...m, id: providerId, provider_message_id: providerId, status: 'sent' }
+            : m
+        ));
+      }
+
+      // Inserir no banco com provider_message_id para evitar duplicatas com webhook
+      // Se webhook já inseriu, o upsert apenas garante e não gera erro (ou ignoreOnConflict se preferir)
+      await supabase.from('messages').upsert({
         chat_id: activeChatId,
         sender: 'agent',
         text: textToSend,
-        created_at: new Date().toISOString()
-      });
+        created_at: new Date().toISOString(),
+        provider_message_id: providerId
+      }, { onConflict: 'provider_message_id' });
 
       await supabase.from('chats').update({
         last_message_at: new Date().toISOString()
@@ -586,12 +695,35 @@ const Monitor: React.FC = () => {
                       className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}
                     >
                       <div className={`max-w-[75%] p-3 rounded-2xl shadow-lg ${isAgent ? 'bg-primary text-black rounded-tr-sm' : 'bg-gray-800/90 text-gray-100 rounded-tl-sm border border-white/5'}`}>
+                        {/* Mídia: Imagem */}
+                        {msg.media_type === 'image' && msg.media_url && (
+                          <div className="mb-2 relative group cursor-pointer">
+                            <img
+                              src={msg.media_url}
+                              alt="Imagem recebida"
+                              className="rounded-lg max-h-64 object-cover border border-black/10"
+                              onClick={() => window.open(msg.media_url, '_blank')}
+                            />
+                          </div>
+                        )}
+
+                        {/* Mídia: Áudio */}
+                        {msg.media_type === 'audio' && msg.media_url && (
+                          <div className="mb-2 min-w-[200px]">
+                            <audio controls className="w-full h-8" src={msg.media_url} />
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap leading-relaxed text-sm">{msg.text}</p>
                         <div className="flex items-center justify-end gap-1 mt-1.5">
                           <span className={`text-[11px] font-medium ${isAgent ? 'text-black/50' : 'text-gray-400'}`}>
                             {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {isAgent && <CheckCheck className={`w-4 h-4 ${msg.id.startsWith('temp-') ? 'text-black/30' : 'text-black/50'}`} />}
+                          {isAgent && (
+                            msg.status === 'pending' ? <Clock size={12} className="text-black/40" /> :
+                              msg.status === 'sent' ? <Check size={14} className="text-black/50" /> :
+                                msg.status === 'read' ? <CheckCheck size={14} className="text-blue-600" /> :
+                                  <CheckCheck size={14} className="text-black/50" />
+                          )}
                         </div>
                       </div>
                     </motion.div>
@@ -660,6 +792,9 @@ const Monitor: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Componente de Teste do Realtime - Remover após debug */}
+      <RealtimeTest />
     </div>
   );
 };

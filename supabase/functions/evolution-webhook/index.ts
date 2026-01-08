@@ -29,17 +29,23 @@ serve(async (req) => {
         let textContent = ''
         let pushName = 'Unknown'
 
-        // Busca no payload.data (padrão Evolution v2)
+        // Busca no payload.data e variantes
         if (payload.data) {
-            // Se data é array
             if (Array.isArray(payload.data)) {
                 messageData = payload.data[0]
+            } else if (payload.data.records && Array.isArray(payload.data.records)) {
+                messageData = payload.data.records[0] // Formato paginado/search
             } else {
                 messageData = payload.data
             }
+        } else if (payload.event === 'messages.upsert' && payload.data) {
+            messageData = payload.data;
+        } else {
+            // Tentar usar o payload raiz como messageData se nada mais bater
+            messageData = payload;
         }
 
-        console.log('� messageData found:', !!messageData)
+        console.log('📨 messageData found:', !!messageData)
 
         if (messageData) {
             // Extrair remoteJid de QUALQUER lugar
@@ -73,16 +79,16 @@ serve(async (req) => {
                 }), { headers: corsHeaders })
             }
 
-            // FILTRO 2: Ignorar broadcasts e newsletters (grupos são permitidos)
-            if (remoteJid && (remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter'))) {
-                console.log('⏭️ Ignorando broadcast/newsletter:', remoteJid)
+            // FILTRO 2: Ignorar broadcasts, newsletters e GRUPOS
+            if (remoteJid && (remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter') || remoteJid.includes('@g.us'))) {
+                console.log('⏭️ Ignorando broadcast/newsletter/grupo:', remoteJid)
                 return new Response(JSON.stringify({
                     received: true,
-                    skipped: 'broadcast_or_newsletter'
+                    skipped: 'broadcast_newsletter_group'
                 }), { headers: corsHeaders })
             }
 
-            // Detectar tipo de chat
+            // Detectar tipo de chat (agora só individual deve passar, mas mantemos lógica defensiva)
             const chatType = remoteJid && remoteJid.includes('@g.us') ? 'group' : 'individual'
             console.log('📋 Tipo de chat:', chatType)
 
@@ -97,35 +103,75 @@ serve(async (req) => {
                 }
             }
 
-            // Se tem remoteJid, tentar extrair texto
+            // Se tem remoteJid, tentar extrair texto e ID
             if (remoteJid) {
-                // Texto pode estar em vários lugares
-                if (messageData.message?.conversation) {
-                    textContent = messageData.message.conversation
-                } else if (messageData.message?.extendedTextMessage?.text) {
-                    textContent = messageData.message.extendedTextMessage.text
-                } else if (messageData.text) {
-                    textContent = messageData.text
-                } else if (messageData.content) {
-                    textContent = messageData.content
-                } else if (typeof messageData.message === 'string') {
-                    textContent = messageData.message
-                }
+                const providerMessageId = messageData.key?.id || messageData.id || null;
+                console.log('🆔 provider_message_id:', providerMessageId);
 
-                // Nome do contato - NÃO usar número como fallback
-                pushName = messageData.pushName ||
-                    messageData.name ||
-                    messageData.notifyName ||
-                    messageData.verifiedName ||
-                    'Contato sem nome'
+                // Tentar extrair mídia (Base64 ou URL)
+                let mediaUrl = null;
+                let mediaType = null;
+                const msg = messageData.message;
 
-                // Se o "nome" for só números ou contiver ':', substituir por fallback
-                if (/^\d+$/.test(pushName) || pushName.includes(':') || pushName.includes('@')) {
-                    pushName = 'Contato sem nome'
+                if (msg) {
+                    if (msg.imageMessage) {
+                        mediaType = 'image';
+                        textContent = msg.imageMessage.caption || textContent || '[Imagem]';
+                        // Prioridade: Base64 no payload raiz > Base64 na msg > URL
+                        const b64 = messageData.base64 || msg.imageMessage.jpegThumbnail; // Thumb é muito pequeno, mas fallback
+                        if (messageData.base64) {
+                            mediaUrl = `data:${msg.imageMessage.mimetype || 'image/jpeg'};base64,${messageData.base64}`;
+                        } else if (msg.imageMessage.url) {
+                            // Evolution URLs podem precisar de auth, mas salvamos o que vier
+                            mediaUrl = msg.imageMessage.url;
+                        }
+                    } else if (msg.audioMessage) {
+                        mediaType = 'audio';
+                        textContent = '[Áudio]';
+                        if (messageData.base64) {
+                            mediaUrl = `data:${msg.audioMessage.mimetype || 'audio/mp4'};base64,${messageData.base64}`;
+                        } else if (msg.audioMessage.url) {
+                            mediaUrl = msg.audioMessage.url;
+                        }
+                    } else if (msg.videoMessage) {
+                        mediaType = 'video';
+                        textContent = msg.videoMessage.caption || textContent || '[Vídeo]';
+                        if (messageData.base64) {
+                            mediaUrl = `data:${msg.videoMessage.mimetype || 'video/mp4'};base64,${messageData.base64}`;
+                        } else if (msg.videoMessage.url) {
+                            mediaUrl = msg.videoMessage.url;
+                        }
+                    } else if (msg.stickerMessage) {
+                        mediaType = 'image'; // Tratamos sticker como imagem por enquanto
+                        textContent = '[Sticker]';
+                        if (messageData.base64) {
+                            mediaUrl = `data:${msg.stickerMessage.mimetype || 'image/webp'};base64,${messageData.base64}`;
+                        } else if (msg.stickerMessage.url) {
+                            mediaUrl = msg.stickerMessage.url;
+                        }
+                    } else if (msg.documentMessage) {
+                        mediaType = 'document';
+                        textContent = msg.documentMessage.fileName || msg.documentMessage.caption || '[Documento]';
+                        if (messageData.base64) {
+                            mediaUrl = `data:${msg.documentMessage.mimetype || 'application/pdf'};base64,${messageData.base64}`;
+                        } else if (msg.documentMessage.url) {
+                            mediaUrl = msg.documentMessage.url;
+                        }
+                    }
                 }
 
                 console.log('💬 textContent:', textContent)
+                console.log('🖼️ mediaType:', mediaType)
                 console.log('👤 pushName:', pushName)
+
+                // Determinar sender (quem enviou)
+                const isFromMe = messageData.key?.fromMe || false;
+                const sender = isFromMe ? 'agent' : 'user';
+
+                // Determinar timestamp (data real da mensagem ou agora)
+                const messageTimestamp = messageData.messageTimestamp
+                    ? new Date(Number(messageData.messageTimestamp) * 1000)
+                    : new Date();
 
                 // SALVAR DIRETO - Preservar nomes existentes
                 if (remoteJid) {
@@ -144,7 +190,7 @@ serve(async (req) => {
                         const { data, error } = await supabase
                             .from('chats')
                             .update({
-                                last_message_at: new Date().toISOString(),
+                                last_message_at: messageTimestamp.toISOString(), // TIMESTAMP REAL
                                 status: 'Ativo',
                                 type: chatType
                             })
@@ -167,8 +213,8 @@ serve(async (req) => {
                             .from('chats')
                             .insert({
                                 whatsapp_id: remoteJid,
-                                name: pushName,
-                                last_message_at: new Date().toISOString(),
+                                name: pushName, // Aqui usamos o pushName ou 'Unknown'
+                                last_message_at: messageTimestamp.toISOString(), // TIMESTAMP REAL
                                 status: 'Ativo',
                                 type: chatType
                             })
@@ -187,25 +233,41 @@ serve(async (req) => {
 
                     console.log('✅ Chat upserted:', chatData.id)
 
-                    // 2. Se tiver texto, inserir mensagem
-                    if (textContent && chatData?.id) {
-                        const isFromMe = messageData.key?.fromMe || messageData.fromMe || false
+                    // 2. Se tiver texto ou mídia, inserir mensagem
+                    if ((textContent || mediaUrl) && chatData?.id) {
+                        const messagePayload = {
+                            chat_id: chatData.id,
+                            sender: sender,
+                            text: textContent,
+                            media_url: mediaUrl,
+                            media_type: mediaType,
+                            created_at: messageTimestamp.toISOString(),
+                            provider_message_id: providerMessageId
+                        };
 
-                        const { error: msgError } = await supabase
-                            .from('messages')
-                            .insert({
-                                chat_id: chatData.id,
-                                sender: isFromMe ? 'agent' : 'user',
-                                text: textContent
-                            })
+                        let msgError = null;
 
-                        if (msgError) {
-                            console.error('❌ Message error:', msgError)
+                        // Se tiver provider_message_id, usar UPSERT para evitar duplicatas
+                        if (providerMessageId) {
+                            const { error } = await supabase
+                                .from('messages')
+                                .upsert(messagePayload, { onConflict: 'provider_message_id' })
+                            msgError = error;
                         } else {
-                            console.log('✅ Message inserted!')
+                            // Se não tiver ID (mensagem de sistema ou bot), usar INSERT simples
+                            // Removemos provider_message_id do payload se for null/undefined para evitar erro de constraint
+                            if (!messagePayload.provider_message_id) delete messagePayload.provider_message_id;
+
+                            const { error } = await supabase
+                                .from('messages')
+                                .insert(messagePayload)
+                            msgError = error;
                         }
+
+                        if (msgError) console.error('❌ Msg save error:', msgError)
+                        else console.log(`💾 Mensagem salva (${sender}):`, providerMessageId || 'NO-ID')
                     } else {
-                        console.log('⚠️ No text content to save')
+                        console.log('⚠️ Sem conteúdo para salvar (nem texto, nem mídia)')
                     }
 
                     return new Response(JSON.stringify({

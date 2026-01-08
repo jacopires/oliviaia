@@ -59,6 +59,7 @@ export const configureWebhook = async (instanceName: string, webhookUrl: string)
                 "enabled": true,
                 "url": webhookUrl,
                 "webhookByEvents": true,
+                "webhookBase64": true,
                 "events": [
                     "MESSAGES_UPSERT",
                     "MESSAGES_UPDATE",
@@ -277,6 +278,7 @@ export const sendTextMessage = async (instanceName: string, remoteJid: string, t
 
         const data = await response.json();
         console.log(`✅ [Evolution] Sucesso:`, data);
+        return data;
 
         // 3. AUTO-SAVE: Garante que o chat existe no Supabase imediatamente
         // Isso faz o contato aparecer na sidebar assim que você envia a mensagem

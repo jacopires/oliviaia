@@ -80,10 +80,17 @@ const Integrations: React.FC = () => {
         setStatus('open');
         setInstanceName(name);
 
-        // SE O MODAL ESTIVER ABERTO -> MOSTRA SUCESSO
-        setConnectionStep('success');
+        // SE O MODAL ESTIVER ABERTO -> MOSTRA SUCESSO E FEEDBACK
+        if (isModalOpen) {
+          setConnectionStep('success');
+          showToast('Dispositivo conectado com sucesso!', 'success');
+          setTimeout(() => {
+            setIsModalOpen(false);
+            setConnectionStep('input'); // Reset para próxima vez
+          }, 2500);
+        }
 
-        // AUTO-SETE WEBHOOK
+        // AUTO-SETE WEBHOOK (Sempre tenta configurar para garantir, mas silenciosamente no load)
         configureWebhook(name, 'https://kcerrbzfxutquhqbnybo.supabase.co/functions/v1/evolution-webhook')
           .then(() => console.log('✅ Webhook configurado automaticamente'))
           .catch(err => console.error('❌ Falha ao configurar webhook:', err));
@@ -92,12 +99,6 @@ const Integrations: React.FC = () => {
         configureSettings(name)
           .then(() => console.log('✅ Settings configurados automaticamente'))
           .catch(err => console.error('❌ Falha ao configurar settings:', err));
-
-        showToast('Dispositivo conectado com sucesso!', 'success');
-        setTimeout(() => {
-          setIsModalOpen(false);
-          setConnectionStep('input'); // Reset para próxima vez
-        }, 2500);
       } else if (s === 'close') {
         setStatus('close');
         // Se caiu a conexão e não estamos no modal, avisa
@@ -406,6 +407,11 @@ const Integrations: React.FC = () => {
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Online</span>
+                </div>
+              ) : status === 'loading' && instanceName ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-full">
+                  <RefreshCw className="w-3 h-3 animate-spin text-yellow-500" />
+                  <span className="text-xs font-bold text-yellow-500 uppercase tracking-wide">Verificando...</span>
                 </div>
               ) : instanceName ? (
                 <div className="px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider flex items-center gap-2 bg-red-500/10 text-red-400 border-red-500/20">
