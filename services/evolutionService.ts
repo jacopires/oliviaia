@@ -530,6 +530,9 @@ export const syncMessages = async (instanceName: string, remoteJid: string) => {
 
         if (Array.isArray(data)) {
             messages = data;
+        } else if (data.records && Array.isArray(data.records)) {
+            // Formato Paginado (Evolution v2)
+            messages = data.records;
         } else if (data.messages && Array.isArray(data.messages)) {
             messages = data.messages;
         } else if (typeof data === 'object' && data !== null) {
