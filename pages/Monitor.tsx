@@ -159,16 +159,11 @@ const Monitor: React.FC = () => {
   }, []);
 
 
+
   // 3. Realtime para Mensagens (filtrado por chat ativo)
   useEffect(() => {
-    if (!activeChatId) {
-      console.log('⏭️ [Monitor] Sem chat ativo, pulando subscription');
-      return;
-    }
+    if (!activeChatId) return;
 
-    console.log('🔌 [Monitor] Criando subscription para chat:', activeChatId);
-
-    // Criar canal com nome único baseado no chat ID
     const channelName = `messages:${activeChatId}:${Date.now()}`;
     const msgChannel = supabase
       .channel(channelName)
@@ -181,36 +176,22 @@ const Monitor: React.FC = () => {
           filter: `chat_id=eq.${activeChatId}`
         },
         (payload) => {
-          console.log('🔔 [Monitor] Nova mensagem via Realtime:', payload.new);
-
-          // Evitar duplicatas: verificar se mensagem já existe
+          // Evitar duplicatas
           setActiveMessages((prev) => {
             const exists = prev.some(m => m.id === payload.new.id);
-            if (exists) {
-              console.log('⚠️ [Monitor] Mensagem duplicada ignorada:', payload.new.id);
-              return prev;
-            }
-            console.log('✅ [Monitor] Mensagem adicionada ao estado');
+            if (exists) return prev;
             return [...prev, payload.new as Message];
           });
-
           scrollToBottom();
         }
       )
-      .subscribe((status) => {
-        console.log('📡 [Monitor] Subscription status:', status, 'Canal:', channelName);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ [Monitor] Realtime conectado com sucesso!');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ [Monitor] Erro no canal Realtime');
-        }
-      });
+      .subscribe();
 
     return () => {
-      console.log('🔌 [Monitor] Limpando subscription do chat:', activeChatId);
       supabase.removeChannel(msgChannel);
     };
   }, [activeChatId]);
+
 
 
   // 3. Auto Scroll
